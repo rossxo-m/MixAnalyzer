@@ -257,7 +257,7 @@ function drawLiveSpec(canvas, analyser, slope, mode, filterBank, msMode, scrubDa
   }
 }
 
-function drawWaveCanvas(canvas, waveData, prefs, duration, bpm, zoom = 1, scrollPct = 0) {
+function drawWaveCanvas(canvas, waveData, prefs, duration, bpm, keyData, zoom = 1, scrollPct = 0) {
   if (!canvas || !waveData?.length) return;
   const setup = setupCanvas(canvas);
   if (!setup) return;
@@ -341,6 +341,20 @@ function drawWaveCanvas(canvas, waveData, prefs, duration, bpm, zoom = 1, scroll
       ctx.strokeStyle = isBarLine ? "rgba(255,136,51,0.25)" : "rgba(255,136,51,0.1)";
       ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
     }
+  }
+
+  // BPM + key corner labels
+  ctx.font = "bold 8px 'JetBrains Mono', monospace";
+  if (bpm > 0) {
+    ctx.textAlign = "left";
+    ctx.fillStyle = "rgba(255,136,51,0.7)";
+    ctx.fillText(`${bpm} BPM`, 6, 11);
+  }
+  if (keyData?.key) {
+    const keyColor = keyData.mode === "minor" ? "#aa66ff" : "#33ccaa";
+    ctx.textAlign = "right";
+    ctx.fillStyle = keyColor + "bb";
+    ctx.fillText(keyData.key, W - 6, 11);
   }
 
   // Zoom position indicator (mini map strip) — visible only when zoomed
@@ -633,26 +647,25 @@ function drawVectorscope(canvas, filterBank) {
   const hasMultiband = filterBank.analysers?.length >= 6;
   if (hasMultiband) {
     // Per-band time domain data for multiband coloring
-    const bandBufSize = filterBank.analysers[0].fftSize;
+    const bandBufSize = filterBank.analysers[0].fftSize; // 512
     const bandData = Array.from({ length: 6 }, (_, i) => {
       const d = new Float32Array(bandBufSize);
       filterBank.analysers[i].getFloatTimeDomainData(d);
       return d;
     });
-    // Stride: wideband fftSize may differ from band fftSize — use min
-    const stride = Math.round(bufSize / bandBufSize);
-    // Band colors: Low=red, Mid=green, High=blue
+    // Align temporal windows: wideband buffer covers bufSize samples (4096 ≈ 93ms),
+    // band buffers cover bandBufSize samples (512 ≈ 11.6ms). Use the tail of the
+    // wideband buffer so both windows represent the same most-recent samples (1:1 mapping).
+    const wbOffset = bufSize - bandBufSize;
     const bandRGB = [[255, 85, 68], [68, 204, 102], [68, 136, 255]];
-    // Draw each sample as a colored dot based on dominant band energy
-    for (let i = 0; i < bufSize; i++) {
-      const m = (lData[i] + rData[i]) * 0.7071;
-      const s = (rData[i] - lData[i]) * 0.7071;
+    for (let i = 0; i < bandBufSize; i++) {
+      const wi = wbOffset + i;
+      const m = (lData[wi] + rData[wi]) * 0.7071;
+      const s = (rData[wi] - lData[wi]) * 0.7071;
       const px = c + s * scale;
       const py = c - m * scale;
-      // Look up band energies at corresponding band buffer index
-      const bi = Math.min(Math.floor(i / stride), bandBufSize - 1);
       const e = [0, 1, 2].map(b => {
-        const lv = bandData[b][bi], rv = bandData[b + 3][bi];
+        const lv = bandData[b][i], rv = bandData[b + 3][i];
         return lv * lv + rv * rv;
       });
       const eSum = e[0] + e[1] + e[2] + 1e-12;
@@ -660,8 +673,8 @@ function drawVectorscope(canvas, filterBank) {
       const r = Math.round(rw * bandRGB[0][0] + gw * bandRGB[1][0] + bw * bandRGB[2][0]);
       const g = Math.round(rw * bandRGB[0][1] + gw * bandRGB[1][1] + bw * bandRGB[2][1]);
       const b = Math.round(rw * bandRGB[0][2] + gw * bandRGB[1][2] + bw * bandRGB[2][2]);
-      ctx.fillStyle = `rgba(${r},${g},${b},0.25)`;
-      ctx.fillRect(px - 0.5, py - 0.5, 1, 1);
+      ctx.fillStyle = `rgba(${r},${g},${b},0.3)`;
+      ctx.fillRect(px - 1, py - 1, 2, 2); // 2px dots compensate for fewer points (512 vs 4096)
     }
   } else {
     // Wideband monochrome fallback
@@ -683,7 +696,7 @@ function drawVectorscope(canvas, filterBank) {
    PLAYBACK with Canvas waveform + Live Spectrum + Filter Bank + Meters
    ════════════════════════════════════════════════════ */
 
-export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, setPrefs, bpm }) {
+export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, setPrefs, bpm, keyData }) {
   const [playing, setPlaying] = useState(false);
   const [position, setPositionState] = useState(0);
   const [zoom, setZoom] = useState(1);        // 1x / 2x / 4x / 8x
@@ -728,9 +741,9 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
 
   // Draw static waveform when data or display prefs change
   useEffect(() => {
-    drawWaveCanvas(waveCanvasRef.current, waveData, prefs, duration, bpm, zoomRef.current, scrollPctRef.current);
+    drawWaveCanvas(waveCanvasRef.current, waveData, prefs, duration, bpm, keyData, zoomRef.current, scrollPctRef.current);
     drawOverlay(overlayCanvasRef.current, positionRef.current, duration, zoomRef.current, scrollPctRef.current);
-  }, [waveData, prefs, duration, bpm, zoom, scrollPct]);
+  }, [waveData, prefs, duration, bpm, keyData, zoom, scrollPct]);
 
   // Init live spec + vectorscope canvases
   useEffect(() => {

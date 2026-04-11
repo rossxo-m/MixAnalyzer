@@ -241,6 +241,7 @@ export default function MixAnalyzer() {
                 waveData={current.analysis.spectralWaveform}
                 duration={current.analysis.duration} prefs={prefs} setPrefs={setPrefs}
                 bpm={current.analysis.bpm}
+              keyData={{ key: current.analysis.key, mode: current.analysis.keyMode }}
               />
 
               {view === "analysis" && (<>
