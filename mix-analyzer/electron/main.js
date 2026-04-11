@@ -1,5 +1,9 @@
-const { app, BrowserWindow, shell } = require('electron');
-const path = require('path');
+import { app, BrowserWindow, shell } from 'electron'
+import { fileURLToPath } from 'url'
+import path from 'path'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -12,26 +16,25 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      // Allow Web Audio API (already enabled by default in Electron/Chromium)
     },
-  });
+  })
 
-  win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+  win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
 
-  // Open external links in system browser
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('http')) shell.openExternal(url);
-    return { action: 'deny' };
-  });
+    if (url.startsWith('http')) shell.openExternal(url)
+    return { action: 'deny' }
+  })
 }
 
 app.whenReady().then(() => {
-  createWindow();
+  createWindow()
+
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
-});
+    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  })
+})
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
-});
+  if (process.platform !== 'darwin') app.quit()
+})
