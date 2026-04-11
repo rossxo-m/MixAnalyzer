@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { THEME } from '../theme.js';
 import { BANDS_3 } from '../constants.js';
-import { GENRE_COLORS, GENRE_CURVES } from '../constants.js';
-import { interpolateTargetCurve } from '../analysis/genres.js';
+import { GENRE_COLORS } from '../constants.js';
+import { GENRE_CURVES, interpolateTargetCurve } from '../analysis/genres.js';
 
 export function SpectrumDisplay({ points, pointsS, slope, genre }) {
   const [msMode, setMsMode] = useState(false);
