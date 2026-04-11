@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useMemo } from "react";
 import { THEME } from './theme.js';
 import { BANDS_7, DEFAULT_PREFS } from './constants.js';
 import { GENRE_TARGETS } from './analysis/genres.js';
-import { analyze } from './analysis/analyze.js';
+import { analyze, analyzeBPM } from './analysis/analyze.js';
 import { generateFeedback } from './analysis/feedback.js';
 import { PlaybackWaveform } from './components/PlaybackWaveform.jsx';
 import { SpectrumDisplay } from './components/SpectrumDisplay.jsx';
@@ -101,6 +101,19 @@ export default function MixAnalyzer() {
         const feedback = generateFeedback(analysis, prefs);
         results.push({ name: files[i].name, analysis, feedback });
         bufs.push(audioBuf);
+
+        // BPM runs in a Worker — kick it off now, patch state when it arrives.
+        // The stem index is captured at the time of the Promise so multi-file
+        // drops patch the right stem even if they resolve out of order.
+        const stemIdx = stems.length + results.length - 1;
+        analyzeBPM(audioBuf).then(bpm => {
+          setStems(prev => {
+            if (!prev[stemIdx]) return prev;
+            const next = [...prev];
+            next[stemIdx] = { ...next[stemIdx], analysis: { ...next[stemIdx].analysis, bpm } };
+            return next;
+          });
+        }).catch(() => {}); // BPM failure is non-fatal; metric card stays blank
       } catch (e) {
         results.push({ name: files[i].name, error: e.message });
         bufs.push(null);
