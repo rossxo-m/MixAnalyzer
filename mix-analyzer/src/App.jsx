@@ -79,7 +79,9 @@ export default function MixAnalyzer() {
   const [prefs, setPrefs] = useState(DEFAULT_PREFS);
   const [showPrefs, setShowPrefs] = useState(false);
   const [view, setView] = useState("analysis");
+  const [refStem, setRefStem] = useState(null);
   const fileRef = useRef();
+  const refFileRef = useRef();
   const audioCtxRef = useRef(null);
 
   const getAudioContext = () => {
@@ -125,6 +127,18 @@ export default function MixAnalyzer() {
     setAnalyzing(false);
     setProgress("");
   }, [prefs, stems.length]);
+
+  const loadReference = useCallback(async (file) => {
+    const ctx = getAudioContext();
+    try {
+      const arrayBuf = await file.arrayBuffer();
+      const audioBuf = await ctx.decodeAudioData(arrayBuf);
+      const analysis = analyze(audioBuf, prefs);
+      setRefStem({ name: file.name, analysis });
+    } catch {
+      // ref load failure is non-fatal
+    }
+  }, [prefs]);
 
   const handleDrop = useCallback((e) => {
     e.preventDefault(); setDragOver(false);
@@ -198,6 +212,14 @@ export default function MixAnalyzer() {
           <div style={{ display: "flex", gap: 4, padding: "7px 0", flexWrap: "wrap", alignItems: "center" }}>
             <button onClick={() => fileRef.current?.click()} style={{ background: T.card, color: "#7766bb", border: `1px solid ${T.border}`, borderRadius: 3, padding: "3px 7px", fontSize: 8, cursor: "pointer", fontFamily: T.mono }}>+ Add</button>
             <input ref={fileRef} type="file" multiple accept="audio/*,.wav,.mp3,.flac,.ogg,.aac,.m4a" onChange={e => { const f = Array.from(e.target.files); if (f.length) processFiles(f); }} style={{ display: "none" }} />
+            <button onClick={() => refFileRef.current?.click()} style={{ background: refStem ? "#ffc84418" : T.card, color: refStem ? "#ffc844" : T.sub, border: `1px solid ${refStem ? "#ffc84440" : T.border}`, borderRadius: 3, padding: "3px 7px", fontSize: 8, cursor: "pointer", fontFamily: T.mono }}>+ REF</button>
+            <input ref={refFileRef} type="file" accept="audio/*,.wav,.mp3,.flac,.ogg,.aac,.m4a" onChange={e => { const f = e.target.files[0]; if (f) loadReference(f); e.target.value = ""; }} style={{ display: "none" }} />
+            {refStem && (
+              <div style={{ display: "flex", alignItems: "center", gap: 3, padding: "2px 6px", background: "#ffc84410", border: "1px solid #ffc84430", borderRadius: 3 }}>
+                <span style={{ fontSize: 7, color: "#ffc844", fontFamily: T.mono, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>REF: {refStem.name.replace(/\.[^.]+$/, "")}</span>
+                <button onClick={() => setRefStem(null)} style={{ background: "none", border: "none", color: "#ffc84480", cursor: "pointer", fontSize: 9, padding: 0, lineHeight: 1 }}>×</button>
+              </div>
+            )}
             <div style={{ marginLeft: "auto", display: "flex", gap: 2 }}>
               {["analysis", "stereo", "feedback"].map(v => (
                 <button key={v} onClick={() => setView(v)} style={{
@@ -277,7 +299,16 @@ export default function MixAnalyzer() {
                   {prefs.genre && <span style={{ color: T.accent }}>Target: {prefs.genre}</span>}
                 </div>
 
-                <SpectrumDisplay points={current.analysis.spectrumPoints} pointsS={current.analysis.spectrumPointsS} slope={prefs.specSlope} genre={prefs.genre} />
+                <SpectrumDisplay
+                  points={current.analysis.spectrumPoints}
+                  pointsS={current.analysis.spectrumPointsS}
+                  slope={prefs.specSlope}
+                  genre={prefs.genre}
+                  refPoints={refStem?.analysis.spectrumPoints?.map(p => ({
+                    freq: p.freq,
+                    db: p.db + (current.analysis.lufs - refStem.analysis.lufs),
+                  }))}
+                />
 
                 <div style={{ marginBottom: 12 }}>
                   <div style={{ fontSize: 7, color: T.dim, fontFamily: T.mono, letterSpacing: 1.5, marginBottom: 3 }}>

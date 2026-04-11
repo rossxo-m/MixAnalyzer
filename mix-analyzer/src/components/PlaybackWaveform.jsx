@@ -701,6 +701,9 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
   const [position, setPositionState] = useState(0);
   const [zoom, setZoom] = useState(1);        // 1x / 2x / 4x / 8x
   const [scrollPct, setScrollPct] = useState(0); // 0..1, fraction of total duration at left edge
+  const [bandMutes, setBandMutes] = useState([false, false, false]); // LOW/MID/HIGH output mute
+  const bandMutesRef = useRef([false, false, false]);
+  const bandOutGainsRef = useRef(null); // [[lowGainL, lowGainR], [midGainL, midGainR], [highGainL, highGainR]]
   const zoomRef = useRef(1);
   const scrollPctRef = useRef(0);
   const sourceRef = useRef(null);
@@ -799,6 +802,7 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
     // Phase 3: Disconnect gain + mono nodes
     if (gainRef.current) { try { gainRef.current.disconnect(); } catch(e) {} gainRef.current = null; }
     if (monoMergerRef.current) { try { monoMergerRef.current.disconnect(); } catch(e) {} monoMergerRef.current = null; }
+    bandOutGainsRef.current = null;
     specAnalyserRef.current = null;
     playingRef.current = false; setPlaying(false);
     _lufsHistory = []; _lufsPeak = -60;
@@ -807,6 +811,20 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
   // Cleanup on unmount
   useEffect(() => { return () => killSource(); }, [killSource]);
 
+  // P6-C: Toggle band mute — updates live gain without rebuilding the graph
+  const toggleBandMute = useCallback((i) => {
+    setBandMutes(prev => {
+      const next = [...prev];
+      next[i] = !next[i];
+      if (next.every(Boolean)) return prev; // at least one band must stay audible
+      bandMutesRef.current = next;
+      if (bandOutGainsRef.current) {
+        bandOutGainsRef.current[i].forEach(g => { g.gain.value = next[i] ? 0 : 1; });
+      }
+      return next;
+    });
+  }, []);
+
   const playFrom = useCallback((offset) => {
     if (!buffer || !audioCtx) return;
     killSource();
@@ -814,20 +832,52 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
     const src = audioCtx.createBufferSource();
     src.buffer = buffer;
 
-    // ── Phase 3: GainNode for volume control ──
+    // ── Phase 3 + P6-C: Banded output path (LOW/MID/HIGH mute/solo) ──
+    // src → outputSplitter → 3 bands × 2ch → 6 GainNodes → outputMerger → masterGain → destination
     const gain = audioCtx.createGain();
     gain.gain.value = prefsRef.current.volume ?? 1.0;
     gainRef.current = gain;
-    src.connect(gain);
 
-    // ── Phase 3: Mono preview (ChannelMerger) or stereo pass-through ──
+    const mutes = bandMutesRef.current;
+
     if (prefsRef.current.monoPreview && buffer.numberOfChannels >= 2) {
+      // Mono preview: bypass banded output, use simple path
+      src.connect(gain);
       const merger = audioCtx.createChannelMerger(1);
       gain.connect(merger, 0, 0);
       merger.connect(audioCtx.destination);
       monoMergerRef.current = merger;
+      bandOutGainsRef.current = null;
     } else {
+      // Banded stereo output — 3 bands × L/R → ChannelMerger(2) → masterGain → destination
+      const outSplitter = audioCtx.createChannelSplitter(2);
+      const outMerger = audioCtx.createChannelMerger(2);
+      src.connect(outSplitter);
+      const outBandGains = [];
+      const bandDefs = [
+        () => { const f = audioCtx.createBiquadFilter(); f.type = "lowpass";  f.frequency.value = 200;  f.Q.value = 0.707; return f; },
+        () => { const hp = audioCtx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 200;  hp.Q.value = 0.707;
+                const lp = audioCtx.createBiquadFilter(); lp.type = "lowpass";  lp.frequency.value = 4000; lp.Q.value = 0.707; hp.connect(lp); return { entry: hp, exit: lp }; },
+        () => { const f = audioCtx.createBiquadFilter(); f.type = "highpass"; f.frequency.value = 4000; f.Q.value = 0.707; return f; },
+      ];
+      for (let b = 0; b < 3; b++) {
+        const bandGains = [];
+        for (let ch = 0; ch < 2; ch++) {
+          const def = bandDefs[b](ch);
+          const entry = def.entry ?? def;
+          const exit  = def.exit  ?? def;
+          const g = audioCtx.createGain();
+          g.gain.value = mutes[b] ? 0 : 1;
+          outSplitter.connect(entry, ch);
+          exit.connect(g);
+          g.connect(outMerger, 0, ch);
+          bandGains.push(g);
+        }
+        outBandGains.push(bandGains);
+      }
+      outMerger.connect(gain);
       gain.connect(audioCtx.destination);
+      bandOutGainsRef.current = outBandGains;
     }
 
     // ── Phase 2: Full-spectrum AnalyserNode (parallel tap for live spectrum) ──
@@ -1014,6 +1064,19 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
           border: `1px solid ${prefs.monoPreview ? "#ff885544" : THEME.border}`,
           borderRadius: 3, cursor: "pointer",
         }}>MONO</button>
+
+        {/* P6-C: Band output mute buttons */}
+        <div style={{ display: "flex", gap: 2, marginLeft: 4 }}>
+          {BANDS_3.map((band, i) => (
+            <button key={band.name} onClick={() => toggleBandMute(i)} style={{
+              padding: "2px 6px", fontSize: 7, fontFamily: THEME.mono,
+              background: bandMutes[i] ? "#33333344" : band.color + "22",
+              color: bandMutes[i] ? THEME.dim : band.color,
+              border: `1px solid ${bandMutes[i] ? THEME.border : band.color + "44"}`,
+              borderRadius: 3, cursor: "pointer", textDecoration: bandMutes[i] ? "line-through" : "none",
+            }}>{band.name}</button>
+          ))}
+        </div>
 
         {/* Band toggles */}
         <div style={{ marginLeft: "auto", display: "flex", gap: 3 }}>

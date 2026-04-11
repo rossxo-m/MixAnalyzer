@@ -4,7 +4,7 @@ import { BANDS_3 } from '../constants.js';
 import { GENRE_COLORS } from '../constants.js';
 import { GENRE_CURVES, interpolateTargetCurve } from '../analysis/genres.js';
 
-export function SpectrumDisplay({ points, pointsS, slope, genre }) {
+export function SpectrumDisplay({ points, pointsS, slope, genre, refPoints }) {
   const [msMode, setMsMode] = useState(false);
   if (!points?.length) return null;
   const W = 760, H = 220;
@@ -20,12 +20,22 @@ export function SpectrumDisplay({ points, pointsS, slope, genre }) {
     const octavesFromRef = Math.log2(p.freq / 1000);
     return { freq: p.freq, db: p.db + octavesFromRef * slope };
   }) : null;
+  const compensatedRef = refPoints?.length ? refPoints.map(p => {
+    const octavesFromRef = Math.log2(p.freq / 1000);
+    return { freq: p.freq, db: p.db + octavesFromRef * slope };
+  }) : null;
 
   // Auto-range: tighter range centered on data for better visual spread
   let dataMin = Infinity, dataMax = -Infinity;
   for (const p of compensated) {
     if (p.db > dataMax) dataMax = p.db;
     if (p.db < dataMin && p.db > -100) dataMin = p.db;
+  }
+  if (compensatedRef) {
+    for (const p of compensatedRef) {
+      if (p.db > dataMax) dataMax = p.db;
+      if (p.db < dataMin && p.db > -100) dataMin = p.db;
+    }
   }
   // Tighter minimum span (36dB) so curves fill more of the display
   const minSpan = 36;
@@ -147,6 +157,22 @@ export function SpectrumDisplay({ points, pointsS, slope, genre }) {
               <text x="36" y="14" fill="#ffaa55" fontSize="8" fontFamily={THEME.mono}>SIDE</text>
             </g>
           )}
+          {/* Reference spectrum overlay — LUFS-normalized, gold dashed */}
+          {compensatedRef && (() => {
+            const refPath = compensatedRef.map((p, i) => {
+              const x = (i / (compensatedRef.length - 1)) * W;
+              const y = Math.max(0, Math.min(H, dbToY(p.db)));
+              return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
+            }).join(" ");
+            return (
+              <g>
+                <path d={refPath + ` L${W},${H} L0,${H} Z`} fill="#ffc844" opacity=".07" />
+                <path d={refPath} fill="none" stroke="#ffc844" strokeWidth="2" opacity=".25" />
+                <path d={refPath} fill="none" stroke="#ffc844" strokeWidth="1.2" strokeDasharray="5,3" opacity=".8" />
+                <text x={W - 6} y="14" fill="#ffc844" fontSize="8" fontFamily={THEME.mono} textAnchor="end" opacity=".9">REF</text>
+              </g>
+            );
+          })()}
           {/* Genre target curve with per-point tolerance band */}
           {genre && GENRE_CURVES[genre] && (() => {
             const curve = GENRE_CURVES[genre];
