@@ -1,0 +1,4 @@
+mix-analyzer/node_modules/
+mix-analyzer/dist/
+mix-analyzer/release/
+mix-analyzer/.mcp.json
