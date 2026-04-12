@@ -3,6 +3,52 @@ import { THEME } from '../theme.js';
 import { BANDS_3 } from '../constants.js';
 import { fft } from '../dsp/fft.js';
 
+// Minimal IIR biquad used for scrub-mode per-band phase computation
+function applyBiquad(src, b0, b1, b2, a1, a2) {
+  const dst = new Float32Array(src.length);
+  let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+  for (let i = 0; i < src.length; i++) {
+    const x = src[i];
+    const y = b0*x + b1*x1 + b2*x2 - a1*y1 - a2*y2;
+    dst[i] = y; x2 = x1; x1 = x; y2 = y1; y1 = y;
+  }
+  return dst;
+}
+
+function biquadLP(src, fc, sr) {
+  const w0 = 2 * Math.PI * fc / sr, alpha = Math.sin(w0) / Math.SQRT2;
+  const cosW = Math.cos(w0), a0 = 1 + alpha;
+  return applyBiquad(src,
+    (1 - cosW) / 2 / a0, (1 - cosW) / a0, (1 - cosW) / 2 / a0,
+    -2 * cosW / a0, (1 - alpha) / a0);
+}
+
+function biquadHP(src, fc, sr) {
+  const w0 = 2 * Math.PI * fc / sr, alpha = Math.sin(w0) / Math.SQRT2;
+  const cosW = Math.cos(w0), a0 = 1 + alpha;
+  return applyBiquad(src,
+    (1 + cosW) / 2 / a0, -(1 + cosW) / a0, (1 + cosW) / 2 / a0,
+    -2 * cosW / a0, (1 - alpha) / a0);
+}
+
+function pearson(a, b) {
+  const n = a.length;
+  let sA = 0, sB = 0, sAB = 0, sA2 = 0, sB2 = 0;
+  for (let i = 0; i < n; i++) { sA += a[i]; sB += b[i]; sAB += a[i]*b[i]; sA2 += a[i]*a[i]; sB2 += b[i]*b[i]; }
+  const num = n*sAB - sA*sB;
+  const den = Math.sqrt((n*sA2 - sA*sA) * (n*sB2 - sB*sB));
+  return den > 0 ? Math.max(-1, Math.min(1, num / den)) : 0;
+}
+
+function computeScrubPhase(lSlice, rSlice, sr) {
+  // Low: LP 200Hz; Mid: LP 4kHz then HP 200Hz; High: HP 4kHz
+  const lLow  = biquadLP(lSlice, 200, sr),  rLow  = biquadLP(rSlice, 200, sr);
+  const lMidA = biquadLP(lSlice, 4000, sr), rMidA = biquadLP(rSlice, 4000, sr);
+  const lMid  = biquadHP(lMidA,  200, sr),  rMid  = biquadHP(rMidA,  200, sr);
+  const lHigh = biquadHP(lSlice, 4000, sr), rHigh = biquadHP(rSlice, 4000, sr);
+  return [pearson(lLow, rLow), pearson(lMid, rMid), pearson(lHigh, rHigh)];
+}
+
 function computeScrubData(buffer, position) {
   const N = 4096;
   const sr = buffer.sampleRate;
@@ -20,7 +66,19 @@ function computeScrubData(buffer, position) {
     const mag = Math.sqrt(re[i]*re[i]+im[i]*im[i])/(N/2);
     data[i] = mag > 1e-10 ? 20*Math.log10(mag) : -100;
   }
-  return { data, nyquist: sr/2 };
+  // Extra: L/R slice for vectorscope + RMS for LUFS meter
+  const VS = 512;
+  const lSlice = new Float32Array(VS), rSlice = new Float32Array(VS);
+  let sumSq = 0;
+  for (let i = 0; i < VS; i++) {
+    lSlice[i] = L[offset + i];
+    rSlice[i] = R[offset + i];
+    const m = (lSlice[i] + rSlice[i]) * 0.5;
+    sumSq += m * m;
+  }
+  const momentaryDb = 20 * Math.log10(Math.sqrt(sumSq / VS) + 1e-20);
+  const scrubPhaseCorr = computeScrubPhase(lSlice, rSlice, sr);
+  return { data, nyquist: sr/2, lSlice, rSlice, momentaryDb, scrubPhaseCorr };
 }
 
 /* ════════════════════════════════════════════════════
@@ -257,7 +315,36 @@ function drawLiveSpec(canvas, analyser, slope, mode, filterBank, msMode, scrubDa
   }
 }
 
-function drawWaveCanvas(canvas, waveData, prefs, duration, bpm, keyData, zoom = 1, scrollPct = 0) {
+function computeHighResFrames(buffer, waveData, startFrac, endFrac, targetFrames) {
+  const ch = buffer.getChannelData(0);
+  const sampleStart = Math.floor(startFrac * buffer.length);
+  const sampleEnd   = Math.ceil(endFrac   * buffer.length);
+  const rangeLen    = sampleEnd - sampleStart;
+  const hopSize     = Math.max(1, Math.floor(rangeLen / targetFrames));
+  const frames      = [];
+
+  for (let s = sampleStart; s < sampleEnd; s += hopSize) {
+    const end = Math.min(s + hopSize, sampleEnd);
+    let mx = 0, mn = 0, sumSq = 0;
+    for (let i = s; i < end; i++) {
+      const v = ch[i];
+      if (v > mx) mx = v;
+      if (v < mn) mn = v;
+      sumSq += v * v;
+    }
+    const rms = Math.sqrt(sumSq / (end - s));
+    const t = ((s + hopSize / 2) - sampleStart) / rangeLen;
+    const coarseIdx = Math.min(
+      Math.floor((startFrac + t * (endFrac - startFrac)) * waveData.length),
+      waveData.length - 1
+    );
+    const { low, mid, high } = waveData[coarseIdx];
+    frames.push({ mx, mn, rms, low, mid, high });
+  }
+  return frames;
+}
+
+function drawWaveCanvas(canvas, waveData, prefs, duration, bpm, keyData, zoom = 1, scrollPct = 0, buffer = null) {
   if (!canvas || !waveData?.length) return;
   const setup = setupCanvas(canvas);
   if (!setup) return;
@@ -275,7 +362,15 @@ function drawWaveCanvas(canvas, waveData, prefs, duration, bpm, keyData, zoom = 
   const endFrac = startFrac + visibleFrac;
   const iStart = Math.floor(startFrac * waveData.length);
   const iEnd = Math.min(Math.ceil(endFrac * waveData.length), waveData.length);
-  const visibleCount = iEnd - iStart;
+
+  // Frame source: raw buffer at zoom ≥ 4 for pixel-perfect amplitude; waveData otherwise
+  let frames;
+  if (zoom >= 4 && buffer != null) {
+    frames = computeHighResFrames(buffer, waveData, startFrac, endFrac, Math.min(W, 2048));
+  } else {
+    frames = waveData.slice(iStart, iEnd);
+  }
+  const frameCount = frames.length;
 
   // Clip indicator dashes
   ctx.strokeStyle = "#ff336615"; ctx.lineWidth = 0.5;
@@ -289,10 +384,10 @@ function drawWaveCanvas(canvas, waveData, prefs, duration, bpm, keyData, zoom = 
   ctx.beginPath(); ctx.moveTo(0, H / 2); ctx.lineTo(W, H / 2); ctx.stroke();
 
   if (isSpectral) {
-    const bw = Math.max(0.8, W / visibleCount);
-    for (let i = iStart; i < iEnd; i++) {
-      const frame = waveData[i];
-      const x = ((i - iStart) / visibleCount) * W;
+    const bw = Math.max(0.8, W / frameCount);
+    for (let fi = 0; fi < frameCount; fi++) {
+      const frame = frames[fi];
+      const x = (fi / frameCount) * W;
       const amplitude = frame.rms * H / 2;
       if (amplitude < 0.3) continue;
 
@@ -315,10 +410,10 @@ function drawWaveCanvas(canvas, waveData, prefs, duration, bpm, keyData, zoom = 
       ctx.beginPath(); ctx.moveTo(x, H / 2 - amplitude); ctx.lineTo(x, H / 2 + amplitude); ctx.stroke();
     }
   } else {
-    const bw = Math.max(0.65, W / visibleCount);
-    for (let i = iStart; i < iEnd; i++) {
-      const frame = waveData[i];
-      const x = ((i - iStart) / visibleCount) * W;
+    const bw = Math.max(0.65, W / frameCount);
+    for (let fi = 0; fi < frameCount; fi++) {
+      const frame = frames[fi];
+      const x = (fi / frameCount) * W;
       ctx.lineWidth = bw;
       ctx.strokeStyle = "rgba(102,68,255,0.11)";
       ctx.beginPath(); ctx.moveTo(x, H / 2 - frame.mx * H / 2); ctx.lineTo(x, H / 2 - frame.mn * H / 2); ctx.stroke();
@@ -327,18 +422,31 @@ function drawWaveCanvas(canvas, waveData, prefs, duration, bpm, keyData, zoom = 
     }
   }
 
-  // Beat grid: thin tick marks at BPM intervals
+  // Beat grid: adaptive subdivisions appear as you zoom in (bar → beat → 8th → 16th)
   if (bpm > 0 && duration > 0) {
     const beatInterval = 60 / bpm;
     const barInterval = beatInterval * 4;
     const visibleStart = startFrac * duration;
     const visibleEnd = endFrac * duration;
-    ctx.lineWidth = 0.5;
-    for (let t = 0; t < duration; t += beatInterval) {
-      if (t < visibleStart || t > visibleEnd) continue;
-      const x = ((t - visibleStart) / (visibleEnd - visibleStart)) * W;
-      const isBarLine = Math.abs(t - Math.round(t / barInterval) * barInterval) < beatInterval * 0.1;
-      ctx.strokeStyle = isBarLine ? "rgba(255,136,51,0.25)" : "rgba(255,136,51,0.1)";
+    const visibleDuration = visibleEnd - visibleStart;
+    // Choose subdivision so we aim for ~12-48 lines on screen at once
+    const pixelsPerBeat = W * beatInterval / visibleDuration;
+    const subDiv = pixelsPerBeat >= 60 ? 4 : pixelsPerBeat >= 30 ? 2 : 1;
+    const subInterval = beatInterval / subDiv;
+    const firstT = Math.floor(visibleStart / subInterval) * subInterval;
+    for (let t = firstT; t <= visibleEnd + subInterval * 0.5; t += subInterval) {
+      if (t < 0) continue;
+      const x = ((t - visibleStart) / visibleDuration) * W;
+      if (x < 0 || x > W) continue;
+      const isBar  = (t % barInterval)  < subInterval * 0.3;
+      const isBeat = !isBar && (t % beatInterval) < subInterval * 0.3;
+      if (isBar) {
+        ctx.strokeStyle = "rgba(255,136,51,0.35)"; ctx.lineWidth = 1;
+      } else if (isBeat) {
+        ctx.strokeStyle = "rgba(255,136,51,0.15)"; ctx.lineWidth = 0.5;
+      } else {
+        ctx.strokeStyle = "rgba(255,136,51,0.06)"; ctx.lineWidth = 0.35;
+      }
       ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
     }
   }
@@ -400,7 +508,39 @@ function drawOverlay(canvas, position, duration, zoom = 1, scrollPct = 0) {
    Phase 3: 3-Band Stereo Phase Meter
    ════════════════════════════════════════════════════ */
 
-function drawPhaseMeter(canvas, filterBank) {
+function drawPhaseBand(ctx, band, corr, W, rowH, bandNames, bandColors) {
+  const y = band * rowH;
+  const barLeft = 35, barRight = W - 30, barW = barRight - barLeft;
+  const centerX = barLeft + barW / 2;
+  const barY = y + rowH / 2;
+
+  ctx.fillStyle = "#0c0c1a";
+  ctx.fillRect(barLeft, barY - 6, barW, 12);
+
+  ctx.strokeStyle = "#2a2a44"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(centerX, barY - 6); ctx.lineTo(centerX, barY + 6); ctx.stroke();
+
+  ctx.font = "6px 'JetBrains Mono', monospace"; ctx.textAlign = "center";
+  ctx.fillStyle = "#2a2a44";
+  ctx.fillText("L", barLeft - 6, barY + 2);
+  ctx.fillText("R", barRight + 6, barY + 2);
+
+  const dotX = centerX + corr * (barW / 2);
+  const dotColor = corr < 0 ? "#ff3355" : corr < 0.3 ? "#ff8833" : bandColors[band];
+  ctx.fillStyle = dotColor + "33";
+  ctx.fillRect(Math.min(centerX, dotX), barY - 5, Math.abs(dotX - centerX), 10);
+  ctx.beginPath(); ctx.arc(dotX, barY, 4, 0, Math.PI * 2);
+  ctx.fillStyle = dotColor; ctx.fill();
+
+  ctx.font = "7px 'JetBrains Mono', monospace"; ctx.textAlign = "left";
+  ctx.fillStyle = bandColors[band]; ctx.fillText(bandNames[band], 4, barY + 3);
+
+  ctx.font = "7px 'JetBrains Mono', monospace"; ctx.textAlign = "right";
+  ctx.fillStyle = corr < 0 ? "#ff3355" : "#5a5a70";
+  ctx.fillText(corr.toFixed(2), W - 2, barY + 3);
+}
+
+function drawPhaseMeter(canvas, filterBank, scrubPhaseData = null) {
   if (!canvas) return;
   const setup = setupCanvas(canvas);
   if (!setup) return;
@@ -411,7 +551,7 @@ function drawPhaseMeter(canvas, filterBank) {
   const bandColors = ["#ff5544", "#44cc66", "#4488ff"];
   const rowH = Math.floor(H / 3);
 
-  if (!filterBank?.analysers?.length) {
+  if (!filterBank?.analysers?.length && !scrubPhaseData) {
     // No data — draw empty meter
     ctx.font = "7px 'JetBrains Mono', monospace"; ctx.textAlign = "left";
     for (let i = 0; i < 3; i++) {
@@ -422,6 +562,14 @@ function drawPhaseMeter(canvas, filterBank) {
       // Center tick
       const cx = 35 + (W - 65) / 2;
       ctx.strokeStyle = "#2a2a44"; ctx.beginPath(); ctx.moveTo(cx, y - 5); ctx.lineTo(cx, y + 5); ctx.stroke();
+    }
+    return;
+  }
+
+  // Scrub path: correlation pre-computed from software biquad filters
+  if (scrubPhaseData) {
+    for (let band = 0; band < 3; band++) {
+      drawPhaseBand(ctx, band, scrubPhaseData[band], W, rowH, bandNames, bandColors);
     }
     return;
   }
@@ -461,42 +609,7 @@ function drawPhaseMeter(canvas, filterBank) {
     diffRms = Math.sqrt(diffRms / n);
     sumRms = Math.sqrt(sumRms / n);
     const _width = sumRms > 0.0001 ? Math.min(1, diffRms / sumRms) : 0; // reserved for future per-band width display
-
-    const y = band * rowH;
-    const barLeft = 35, barRight = W - 30, barW = barRight - barLeft;
-    const centerX = barLeft + barW / 2;
-    const barY = y + rowH / 2;
-
-    // Background track
-    ctx.fillStyle = "#0c0c1a";
-    ctx.fillRect(barLeft, barY - 6, barW, 12);
-
-    // Center line
-    ctx.strokeStyle = "#2a2a44"; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(centerX, barY - 6); ctx.lineTo(centerX, barY + 6); ctx.stroke();
-
-    // L/R labels at ends
-    ctx.font = "6px 'JetBrains Mono', monospace"; ctx.textAlign = "center";
-    ctx.fillStyle = "#2a2a44";
-    ctx.fillText("L", barLeft - 6, barY + 2);
-    ctx.fillText("R", barRight + 6, barY + 2);
-
-    // Correlation indicator dot — maps -1..+1 to left..right
-    const dotX = centerX + corr * (barW / 2);
-    const dotColor = corr < 0 ? "#ff3355" : corr < 0.3 ? "#ff8833" : bandColors[band];
-    ctx.fillStyle = dotColor + "33";
-    ctx.fillRect(Math.min(centerX, dotX), barY - 5, Math.abs(dotX - centerX), 10);
-    ctx.beginPath(); ctx.arc(dotX, barY, 4, 0, Math.PI * 2);
-    ctx.fillStyle = dotColor; ctx.fill();
-
-    // Band label
-    ctx.font = "7px 'JetBrains Mono', monospace"; ctx.textAlign = "left";
-    ctx.fillStyle = bandColors[band]; ctx.fillText(bandNames[band], 4, barY + 3);
-
-    // Correlation value
-    ctx.font = "7px 'JetBrains Mono', monospace"; ctx.textAlign = "right";
-    ctx.fillStyle = corr < 0 ? "#ff3355" : "#5a5a70";
-    ctx.fillText(corr.toFixed(2), W - 2, barY + 3);
+    drawPhaseBand(ctx, band, corr, W, rowH, bandNames, bandColors);
   }
 }
 
@@ -509,7 +622,7 @@ let _lufsHistory = [];
 let _lufsPeak = -60;
 let _lufsPeakDecay = 0;
 
-function drawLufsMeter(canvas, analyser) {
+function drawLufsMeter(canvas, analyser, scrubDb = null) {
   if (!canvas) return;
   const setup = setupCanvas(canvas);
   if (!setup) return;
@@ -527,6 +640,24 @@ function drawLufsMeter(canvas, analyser) {
     ctx.beginPath(); ctx.moveTo(scaleW, y); ctx.lineTo(W, y); ctx.stroke();
     ctx.font = "7px 'JetBrains Mono', monospace"; ctx.textAlign = "right"; ctx.fillStyle = "#3a3a55";
     ctx.fillText(`${db}`, scaleW - 2, y + 3);
+  }
+
+  // Scrub mode: use pre-computed momentaryDb, skip history + analyser
+  if (scrubDb !== null) {
+    const momentaryDb = Math.max(-60, scrubDb);
+    const mH = Math.max(0, ((momentaryDb - dbMin) / dbRange)) * H;
+    const mColor = momentaryDb > -6 ? "#ff3355" : momentaryDb > -14 ? "#ff8833" : "#33aaff";
+    const mGrad = ctx.createLinearGradient(0, H - mH, 0, H);
+    mGrad.addColorStop(0, mColor); mGrad.addColorStop(1, mColor + "44");
+    const scaleW2 = 22, barsW2 = W - scaleW2 - 2;
+    ctx.fillStyle = mGrad;
+    ctx.fillRect(scaleW2, H - mH, barsW2, mH);
+    ctx.font = "8px 'JetBrains Mono', monospace"; ctx.textAlign = "center";
+    ctx.fillStyle = mColor;
+    ctx.fillText(momentaryDb > -60 ? momentaryDb.toFixed(1) : "---", scaleW2 + barsW2 / 2, 10);
+    ctx.font = "6px 'JetBrains Mono', monospace";
+    ctx.fillStyle = "#4a4a66"; ctx.fillText("SCRUB", scaleW2 + barsW2 / 2, H - 2);
+    return;
   }
 
   if (!analyser) {
@@ -604,37 +735,65 @@ function drawLufsMeter(canvas, analyser) {
    Phase 3: Live Vectorscope (Canvas Lissajous)
    ════════════════════════════════════════════════════ */
 
-function drawVectorscope(canvas, filterBank) {
+function drawVectorscope(canvas, filterBank, scrubVsData = null) {
   if (!canvas) return;
   const setup = setupCanvas(canvas);
   if (!setup) return;
   const { ctx, W, H } = setup;
-  const S = Math.min(W, H);
-  const c = S / 2, scale = c * 0.82;
+
+  // Wide mode (W > H): anchor centre at bottom, only M>0 half visible.
+  // Normal mode: full circle centred in the smaller dimension, centred in canvas.
+  const isWide = W > H * 1.1;
+  const radius = isWide ? H * 0.88 : Math.min(W, H) * 0.41;
+  const cx = W / 2;
+  const cy = isWide ? H : Math.min(W, H) / 2 + (H - Math.min(W, H)) / 2;
+  const labelSz = Math.max(6, Math.round(Math.min(W, H) * 0.07));
 
   ctx.fillStyle = "#080812";
-  ctx.fillRect(0, 0, S, S);
+  ctx.fillRect(0, 0, W, H);
 
-  // Grid: axes + diagonals + circles
+  // Axes
   ctx.strokeStyle = "#151525"; ctx.lineWidth = 0.5;
-  ctx.beginPath(); ctx.moveTo(c, 0); ctx.lineTo(c, S); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(0, c); ctx.lineTo(S, c); ctx.stroke();
-  ctx.strokeStyle = "#12122a"; ctx.lineWidth = 0.3;
-  ctx.beginPath(); ctx.moveTo(0, S); ctx.lineTo(S, 0); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(S, S); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, H); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0, cy); ctx.lineTo(W, cy); ctx.stroke();
+
+  if (!isWide) {
+    ctx.strokeStyle = "#12122a"; ctx.lineWidth = 0.3;
+    ctx.beginPath(); ctx.moveTo(0, cy + cx); ctx.lineTo(cx + (H - cy), 0); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(W, cy + (W - cx)); ctx.lineTo(W - (H - cy), 0); ctx.stroke();
+  }
+
+  // Reference circles
   ctx.strokeStyle = "#151525"; ctx.lineWidth = 0.4;
-  ctx.beginPath(); ctx.arc(c, c, scale * 0.5, 0, Math.PI * 2); ctx.stroke();
-  ctx.beginPath(); ctx.arc(c, c, scale, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx, cy, radius * 0.5, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI * 2); ctx.stroke();
 
   // Labels
-  ctx.font = `${Math.round(S * 0.07)}px 'JetBrains Mono', monospace`;
+  ctx.font = `${labelSz}px 'JetBrains Mono', monospace`;
   ctx.fillStyle = "#2a2a44";
   ctx.textAlign = "center";
-  ctx.fillText("M", c, 9);
+  ctx.fillText("M", cx, labelSz + 2);
   ctx.textAlign = "right";
-  ctx.fillText("R", S - 2, c - 2);
+  ctx.fillText("R", W - 2, cy - 2);
   ctx.textAlign = "left";
-  ctx.fillText("L", 2, c - 2);
+  ctx.fillText("L", 2, cy - 2);
+
+  // Scrub mode: draw wideband monochrome from buffer slice, skip live analyser
+  if (scrubVsData) {
+    const { lSlice, rSlice } = scrubVsData;
+    ctx.beginPath();
+    for (let i = 0; i < lSlice.length; i++) {
+      const m = (lSlice[i] + rSlice[i]) * 0.7071;
+      const s = (rSlice[i] - lSlice[i]) * 0.7071;
+      const px = cx + s * radius;
+      const py = cy - m * radius;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.strokeStyle = "rgba(51,170,255,0.25)";
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+    return;
+  }
 
   if (!filterBank?.lAnalyser) return;
 
@@ -646,24 +805,22 @@ function drawVectorscope(canvas, filterBank) {
 
   const hasMultiband = filterBank.analysers?.length >= 6;
   if (hasMultiband) {
-    // Per-band time domain data for multiband coloring
-    const bandBufSize = filterBank.analysers[0].fftSize; // 512
+    const bandBufSize = filterBank.analysers[0].fftSize;
     const bandData = Array.from({ length: 6 }, (_, i) => {
       const d = new Float32Array(bandBufSize);
       filterBank.analysers[i].getFloatTimeDomainData(d);
       return d;
     });
-    // Align temporal windows: wideband buffer covers bufSize samples (4096 ≈ 93ms),
-    // band buffers cover bandBufSize samples (512 ≈ 11.6ms). Use the tail of the
-    // wideband buffer so both windows represent the same most-recent samples (1:1 mapping).
+    // Use tail of wideband buffer to align temporal window with band buffers (1:1 sample mapping)
     const wbOffset = bufSize - bandBufSize;
     const bandRGB = [[255, 85, 68], [68, 204, 102], [68, 136, 255]];
     for (let i = 0; i < bandBufSize; i++) {
       const wi = wbOffset + i;
       const m = (lData[wi] + rData[wi]) * 0.7071;
       const s = (rData[wi] - lData[wi]) * 0.7071;
-      const px = c + s * scale;
-      const py = c - m * scale;
+      const px = cx + s * radius;
+      const py = cy - m * radius;
+      if (px < 0 || px > W || py < 0 || py > H) continue;
       const e = [0, 1, 2].map(b => {
         const lv = bandData[b][i], rv = bandData[b + 3][i];
         return lv * lv + rv * rv;
@@ -674,16 +831,15 @@ function drawVectorscope(canvas, filterBank) {
       const g = Math.round(rw * bandRGB[0][1] + gw * bandRGB[1][1] + bw * bandRGB[2][1]);
       const b = Math.round(rw * bandRGB[0][2] + gw * bandRGB[1][2] + bw * bandRGB[2][2]);
       ctx.fillStyle = `rgba(${r},${g},${b},0.3)`;
-      ctx.fillRect(px - 1, py - 1, 2, 2); // 2px dots compensate for fewer points (512 vs 4096)
+      ctx.fillRect(px - 1, py - 1, 2, 2);
     }
   } else {
-    // Wideband monochrome fallback
     ctx.beginPath();
     for (let i = 0; i < bufSize; i++) {
       const m = (lData[i] + rData[i]) * 0.7071;
       const s = (rData[i] - lData[i]) * 0.7071;
-      const px = c + s * scale;
-      const py = c - m * scale;
+      const px = cx + s * radius;
+      const py = cy - m * radius;
       if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
     }
     ctx.strokeStyle = "rgba(51,170,255,0.18)";
@@ -702,12 +858,14 @@ const fmt = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2,
 export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, setPrefs, bpm, keyData }) {
   const [playing, setPlaying] = useState(false);
   const [position, setPositionState] = useState(0);
-  const [zoom, setZoom] = useState(1);        // 1x / 2x / 4x / 8x
+  const [zoom, setZoom] = useState(1);        // continuous zoom 1..32
   const [scrollPct, setScrollPct] = useState(0); // 0..1, fraction of total duration at left edge
   const [bandMutes, setBandMutes] = useState([false, false, false]); // P6-C: LOW/MID/HIGH output mute
+  const [panelW, setPanelW] = useState({ phase: 150, vs: 90, lufs: 90 }); // resizable meter panels
   const bandMutesRef = useRef([false, false, false]);
   const bandOutGainsRef = useRef(null); // [[gainL, gainR], [gainL, gainR], [gainL, gainR]]
   const playFromRef = useRef(null); // Fix 1: stable ref so drag useEffect doesn't re-bind on playFrom identity change
+  const toggleRef = useRef(null);   // spacebar listener — stable ref avoids re-binding on toggle identity changes
   const zoomRef = useRef(1);
   const scrollPctRef = useRef(0);
   const sourceRef = useRef(null);
@@ -727,6 +885,7 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
   const lufsCanvasRef = useRef(null);
   // Phase 3: Live vectorscope canvas
   const vsCanvasRef = useRef(null);
+  const waveContainerRef = useRef(null);  // for passive:false wheel listener
   // Phase 3: Audio graph refs
   const gainRef = useRef(null);
   const monoMergerRef = useRef(null);
@@ -748,7 +907,7 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
 
   // Draw static waveform when data or display prefs change
   useEffect(() => {
-    drawWaveCanvas(waveCanvasRef.current, waveData, prefs, duration, bpm, keyData, zoomRef.current, scrollPctRef.current);
+    drawWaveCanvas(waveCanvasRef.current, waveData, prefs, duration, bpm, keyData, zoomRef.current, scrollPctRef.current, buffer);
     drawOverlay(overlayCanvasRef.current, positionRef.current, duration, zoomRef.current, scrollPctRef.current);
   }, [waveData, prefs, duration, bpm, keyData, zoom, scrollPct]);
 
@@ -761,7 +920,7 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
   // Stop playback on buffer change (tab switch)
   useEffect(() => {
     positionRef.current = 0;
-    setPositionState(0); // eslint-disable-line -- intentional reset on buffer swap
+    setPositionState(0); // eslint-disable-line react-hooks/set-state-in-effect -- intentional reset on buffer swap
     drawLiveSpec(liveSpecCanvasRef.current, null, prefsRef.current.specSlope, prefsRef.current.liveSpecMode, null, prefsRef.current.specMs);
     drawVectorscope(vsCanvasRef.current, null);
   }, [buffer]);
@@ -953,6 +1112,19 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
   // Fix 1: keep playFromRef in sync so drag effect doesn't re-bind on playFrom identity changes
   useEffect(() => { playFromRef.current = playFrom; }, [playFrom]);
 
+  // Spacebar: global keydown → play/pause (only when not typing in an input)
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.code !== 'Space') return;
+      const tag = e.target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      e.preventDefault();
+      toggleRef.current?.();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []); // [] — uses toggleRef, never stale
+
   // Drag-scrub: document-level so drag works outside canvas
   // Fix 3 (corrected): throttle only the FFT+draw, not the overlay — overlay stays at full mouse rate
   useEffect(() => {
@@ -976,6 +1148,9 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
         lastScrubT = now;
         scrubDataRef.current = computeScrubData(buffer, newPos);
         drawLiveSpec(liveSpecCanvasRef.current, null, prefsRef.current.specSlope, prefsRef.current.liveSpecMode, null, false, scrubDataRef.current);
+        drawVectorscope(vsCanvasRef.current, null, scrubDataRef.current);
+        drawLufsMeter(lufsCanvasRef.current, null, scrubDataRef.current?.momentaryDb ?? null);
+        drawPhaseMeter(phaseCanvasRef.current, null, scrubDataRef.current?.scrubPhaseCorr ?? null);
       }
     };
     const onUp = () => {
@@ -992,6 +1167,7 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
   const toggle = useCallback(() => {
     if (playingRef.current) killSource(); else playFrom(positionRef.current);
   }, [killSource, playFrom]);
+  useEffect(() => { toggleRef.current = toggle; }, [toggle]);
 
   const seek = useCallback((e) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -1006,20 +1182,86 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
 
   const handleWheelZoom = useCallback((e) => {
     e.preventDefault();
-    const levels = [1, 2, 4, 8];
+    const rect = e.currentTarget.getBoundingClientRect();
+    const cursorPct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const factor = e.deltaY < 0 ? 1.18 : 1 / 1.18;
     setZoom(prev => {
-      const idx = levels.indexOf(prev);
-      const newZoom = e.deltaY < 0
-        ? levels[Math.min(idx + 1, levels.length - 1)]
-        : levels[Math.max(idx - 1, 0)];
+      const newZoom = Math.max(1, Math.min(32, prev * factor));
       zoomRef.current = newZoom;
-      // Keep the hovered position as anchor point
-      if (newZoom === 1) {
+      if (newZoom <= 1) {
         scrollPctRef.current = 0;
         setScrollPct(0);
+      } else {
+        // Anchor: cursor's song-time fraction stays fixed under the mouse
+        const oldVisibleFrac = 1 / prev;
+        const oldStart = Math.min(scrollPctRef.current, 1 - oldVisibleFrac);
+        const cursorTimeFrac = oldStart + cursorPct * oldVisibleFrac;
+        const newVisibleFrac = 1 / newZoom;
+        const newStart = Math.max(0, Math.min(1 - newVisibleFrac, cursorTimeFrac - cursorPct * newVisibleFrac));
+        scrollPctRef.current = newStart;
+        setScrollPct(newStart);
       }
       return newZoom;
     });
+  }, []);
+
+  // Wheel zoom: passive:false required so preventDefault() stops page scroll.
+  // React's synthetic onWheel is passive by default in modern browsers.
+  useEffect(() => {
+    const el = waveContainerRef.current;
+    if (!el) return;
+    const handler = (e) => handleWheelZoom(e);
+    el.addEventListener('wheel', handler, { passive: false });
+    return () => el.removeEventListener('wheel', handler);
+  }, [handleWheelZoom]);
+
+  // Redraw waveform + live-spec on browser window resize (canvas CSS width:"100%" reflows).
+  // rAF defers until layout has settled so getBoundingClientRect() returns correct dims.
+  useEffect(() => {
+    let rafId = 0;
+    const redraw = () => {
+      if (playingRef.current) return;
+      rafId = requestAnimationFrame(() => {
+        drawWaveCanvas(waveCanvasRef.current, waveData, prefsRef.current, duration, bpm, keyData, zoomRef.current, scrollPctRef.current, buffer);
+        drawOverlay(overlayCanvasRef.current, positionRef.current, duration, zoomRef.current, scrollPctRef.current);
+        drawLiveSpec(liveSpecCanvasRef.current, null, prefsRef.current.specSlope, prefsRef.current.liveSpecMode, null, prefsRef.current.specMs, scrubDataRef.current);
+      });
+    };
+    const ro = new ResizeObserver(redraw);
+    if (waveCanvasRef.current) ro.observe(waveCanvasRef.current);
+    return () => { ro.disconnect(); cancelAnimationFrame(rafId); };
+  }, [waveData, duration, bpm, keyData]);
+
+  // Redraw meter panels when their widths change (panelW state) — ResizeObserver on the
+  // waveform canvas doesn't fire for internal panel resizes, so this covers drag handles.
+  // Also redraws on browser resize via panelW-independent initial mount.
+  useEffect(() => {
+    if (playingRef.current) return;
+    const id = requestAnimationFrame(() => {
+      drawLiveSpec(liveSpecCanvasRef.current, null, prefsRef.current.specSlope, prefsRef.current.liveSpecMode, null, prefsRef.current.specMs, scrubDataRef.current);
+      drawPhaseMeter(phaseCanvasRef.current, null);
+      drawVectorscope(vsCanvasRef.current, null);
+      drawLufsMeter(lufsCanvasRef.current, null);
+    });
+    return () => cancelAnimationFrame(id);
+  }, [panelW]);
+
+  // Drag-to-resize meter panels — closure captures startX+startW, no refs needed
+  const startResize = useCallback((e, key, currentW) => {
+    e.preventDefault();
+    const startX = e.clientX, startW = currentW;
+    document.body.style.cursor = 'col-resize';
+    const onMove = (me) => {
+      const w = Math.max(55, Math.min(400, startW - (me.clientX - startX)));
+      setPanelW(prev => ({ ...prev, [key]: w }));
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
   }, []);
 
   const handleScrollDrag = useCallback((e) => {
@@ -1035,8 +1277,7 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
 
   if (!buffer || !waveData) return null;
 
-  const SPEC_W = 560, W = 760, H = 120, LSH = 90;
-  const PHASE_W = 150, LUFS_W = 90;
+  const H = 120, LSH = 90;
   const isSpectral = prefs.waveMode === "spectral";
   const toggles = prefs.bandToggles;
   const vol = Math.round((prefs.volume ?? 1) * 100);
@@ -1161,24 +1402,42 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
           <canvas ref={liveSpecCanvasRef} style={{ display: "block", width: "100%", height: LSH }} />
         </div>
 
-        {/* 3-Band Phase Meter (center) */}
-        <div style={{ width: PHASE_W, background: "#080812", borderLeft: "1px solid #111122" }}>
+        {/* Drag handle */}
+        <div onMouseDown={e => startResize(e, 'phase', panelW.phase)}
+          style={{ width: 4, cursor: 'col-resize', background: 'transparent', flexShrink: 0 }}
+          onMouseEnter={e => e.currentTarget.style.background = '#2a2a44'}
+          onMouseLeave={e => e.currentTarget.style.background = 'transparent'} />
+
+        {/* 3-Band Phase Meter */}
+        <div style={{ width: panelW.phase, flexShrink: 0, background: "#080812" }}>
           <div style={{ padding: "4px 6px 0" }}>
             <span style={{ fontSize: 7, color: THEME.dim, fontFamily: THEME.mono, letterSpacing: 1 }}>PHASE</span>
           </div>
           <canvas ref={phaseCanvasRef} style={{ display: "block", width: "100%", height: LSH }} />
         </div>
 
+        {/* Drag handle */}
+        <div onMouseDown={e => startResize(e, 'vs', panelW.vs)}
+          style={{ width: 4, cursor: 'col-resize', background: 'transparent', flexShrink: 0 }}
+          onMouseEnter={e => e.currentTarget.style.background = '#2a2a44'}
+          onMouseLeave={e => e.currentTarget.style.background = 'transparent'} />
+
         {/* Live Vectorscope */}
-        <div style={{ width: LSH, background: "#080812", borderLeft: "1px solid #111122" }}>
+        <div style={{ width: panelW.vs, flexShrink: 0, background: "#080812" }}>
           <div style={{ padding: "4px 6px 0" }}>
             <span style={{ fontSize: 7, color: THEME.dim, fontFamily: THEME.mono, letterSpacing: 1 }}>VECTOR</span>
           </div>
           <canvas ref={vsCanvasRef} style={{ display: "block", width: "100%", height: LSH }} />
         </div>
 
-        {/* LUFS Meter (right) */}
-        <div style={{ width: LUFS_W, background: "#080812", borderLeft: "1px solid #111122" }}>
+        {/* Drag handle */}
+        <div onMouseDown={e => startResize(e, 'lufs', panelW.lufs)}
+          style={{ width: 4, cursor: 'col-resize', background: 'transparent', flexShrink: 0 }}
+          onMouseEnter={e => e.currentTarget.style.background = '#2a2a44'}
+          onMouseLeave={e => e.currentTarget.style.background = 'transparent'} />
+
+        {/* LUFS Meter */}
+        <div style={{ width: panelW.lufs, flexShrink: 0, background: "#080812" }}>
           <div style={{ padding: "4px 6px 0" }}>
             <span style={{ fontSize: 7, color: THEME.dim, fontFamily: THEME.mono, letterSpacing: 1 }}>LUFS</span>
           </div>
@@ -1188,30 +1447,33 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
 
       {/* Canvas Waveform with playhead overlay */}
       <div style={{ background: "#080812", borderRadius: "0 0 7px 7px", borderTop: "1px solid #111122" }}>
-        {/* Zoom controls */}
-        <div style={{ display: "flex", alignItems: "center", gap: 3, padding: "3px 6px 0" }}>
+        {/* Zoom controls — scroll wheel on waveform for continuous zoom, reset button + indicator here */}
+        <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 6px 0" }}>
           <span style={{ fontSize: 7, color: THEME.dim, fontFamily: THEME.mono }}>ZOOM</span>
-          {[1, 2, 4, 8].map(z => (
-            <button key={z} onClick={() => {
-              setZoom(z);
-              zoomRef.current = z;
-              if (z === 1) { scrollPctRef.current = 0; setScrollPct(0); }
+          <span style={{ fontSize: 7, color: zoom > 1 ? "#bb99ff" : THEME.dim, fontFamily: THEME.mono, minWidth: 30 }}>
+            {zoom.toFixed(zoom >= 10 ? 0 : 1)}×
+          </span>
+          {zoom > 1 && (
+            <button onClick={() => {
+              setZoom(1); zoomRef.current = 1;
+              scrollPctRef.current = 0; setScrollPct(0);
             }} style={{
-              padding: "1px 5px", fontSize: 7, fontFamily: THEME.mono,
-              background: zoom === z ? THEME.accent + "22" : "transparent",
-              color: zoom === z ? "#bb99ff" : THEME.dim,
-              border: `1px solid ${zoom === z ? THEME.accent + "44" : THEME.border}`,
-              borderRadius: 2, cursor: "pointer",
-            }}>{z}×</button>
-          ))}
+              padding: "1px 6px", fontSize: 7, fontFamily: THEME.mono,
+              background: "transparent", color: THEME.dim,
+              border: `1px solid ${THEME.border}`, borderRadius: 2, cursor: "pointer",
+            }}>RESET</button>
+          )}
           {zoom > 1 && (
             <input type="range" min={0} max={100} value={Math.round(scrollPct * 100)} onChange={e => {
               const v = +e.target.value / 100;
               scrollPctRef.current = v; setScrollPct(v);
             }} style={{ flex: 1, height: 3, accentColor: THEME.accent, marginLeft: 4 }} />
           )}
+          <span style={{ marginLeft: "auto", fontSize: 6, color: THEME.dim, fontFamily: THEME.mono, opacity: 0.5 }}>
+            scroll to zoom · drag to scrub
+          </span>
         </div>
-        <div style={{ position: "relative", padding: "4px 0 0", cursor: "pointer" }}
+        <div ref={waveContainerRef} style={{ position: "relative", padding: "4px 0 0", cursor: "pointer" }}
           onMouseDown={e => {
             const rect = e.currentTarget.getBoundingClientRect();
             if (zoom > 1 && e.clientY > rect.bottom - 8) { handleScrollDrag(e); return; }
@@ -1220,7 +1482,6 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
             if (playingRef.current) killSource();
             seek(e);
           }}
-          onWheel={handleWheelZoom}
         >
           <canvas ref={waveCanvasRef} style={{ display: "block", width: "100%", height: H }} />
           <canvas ref={overlayCanvasRef} style={{

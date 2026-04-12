@@ -47,7 +47,7 @@ export function computeSharedFFT(buffer) {
   const specStep = Math.max(1, Math.floor(numHops / maxSpecFrames));
 
   // Spectral waveform: up to 600 frames (same as original)
-  const maxWaveFrames = Math.min(numHops, 600);
+  const maxWaveFrames = Math.min(numHops, 2400);
   const waveStep = Math.max(1, Math.floor(numHops / maxWaveFrames));
 
   // Stereo: up to 24 frames — subsample from the hops we're already running

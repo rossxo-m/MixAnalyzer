@@ -5,31 +5,37 @@ A browser-based audio analysis tool for EDM producers. React single-page app wit
 
 The primary user is an FL Studio EDM producer building this as a personal tool that could grow into a product.
 
-## Current State (Phase 1 Complete)
-The app is a single React component in `src/App.jsx` (~1400 lines). It needs to be modularized.
+## Current State (Phases 1–6.6 Complete, Phase 7 branch active)
+Modularized into `src/dsp/`, `src/analysis/`, `src/components/`. All canvas-based. Branch: `feature/phase7-prep`.
 
 ### Working Features
-- **K-weighted LUFS** (BS.1770-4): two-stage biquad (high shelf 1681Hz + HPF 38Hz), 400ms blocks, absolute+relative gating
-- **True Peak**: 4x Catmull-Rom oversampling (~0.3-0.5dB variance vs ITU FIR spec)
-- **FFT spectrum**: verified Cooley-Tukey radix-2, Hann window, 1/6-octave smoothing, up to 48 averaged frames
-- **Spectral waveform**: RGB color blend per column (low=red, mid=green, high=blue) — continuous MiniMeters-style
-- **3-band stereo** (Low/Mid/High from 7-band FFT M/S decomposition): primary stereo view
-- **Vectorscope**: static 5000-point Lissajous
-- **Full-quality playback**: BufferSource → destination, disconnect-first pattern, traveling playhead, click-to-seek
-- **Band toggle switches**: Low/Mid/High with proper React state (setPrefs)
-- **Genre target profiles**: EDM, Hip-hop, Pop, Rock, Lo-fi with 30-point high-resolution curves + tolerance bands
-- **Spectrum slope compensation**: configurable 0/1.5/3/4.5 dB/octave
-- **7-band distribution bars** with genre target markers
-- **EDM feedback engine**: genre-aware thresholds, FL Studio-specific tips
-- **Preferences panel**: LUFS target, TP ceiling, mono crossover, slope, genre selector
+- **K-weighted LUFS** (BS.1770-4): two-stage biquad, 400ms blocks, absolute+relative gating
+- **True Peak**: 4x Catmull-Rom oversampling
+- **FFT spectrum**: Cooley-Tukey radix-2, Hann window, 1/6-octave smoothing, M/S toggle
+- **Spectral waveform**: Canvas, RGB spectral coloring per frame (MiniMeters-style)
+- **Live spectrum**: Canvas 2D at ~60fps, line + spectrograph modes, M/S toggle, slope compensation
+- **3-band stereo phase meter**: real-time L/R Pearson correlation per band
+- **Live LUFS meter**: momentary + short-term RMS bars with peak hold
+- **Live vectorscope**: Canvas Lissajous, multiband RGB coloring, centered, wide-mode (top half in horizontal layout)
+- **BPM detection**: Web Worker autocorrelation, beat grid on waveform with adaptive subdivisions
+- **Key detection**: Chromagram + Krumhansl-Kessler, displayed on waveform
+- **Playback**: spacebar toggle, continuous scroll-wheel zoom (1×–32×, cursor-anchored), drag-to-scrub with live spectrum + vectorscope + LUFS updating
+- **Resizable meter panels**: drag handles between SPEC/PHASE/VECTOR/LUFS panels
+- **Canvas resize-on-resize**: ResizeObserver (per-canvas) + panelW effect keep all meters redrawn when paused
+- **Reference track overlay**: gold dashed curve on static spectrum, LUFS-normalized
+- **Band output mute**: LOW/MID/HIGH kill switches on playback signal path
+- **Genre target profiles**: EDM, Hip-hop, Pop, Rock, Lo-fi — 30-point curves + tolerance bands
+- **MetricCard scaling**: clamp() font sizes, flex min-width 70px
 - **Multi-stem tabs + frequency masking detection**
 - **Three-view system**: Analysis / Stereo / Feedback
+- **Static Vectorscope** (Stereo view): Canvas-based, DPR-aware — no SVG elements
+- **Phase meter scrub**: software biquad LP/BP/HP per band → Pearson correlation during drag-scrub
+- **BPM octave correction**: doubles result when detected < 100 BPM (fixes half-tempo on EDM tracks)
+- **Adaptive waveform resolution**: 2400 pre-computed frames (up from 600); zoom ≥ 4× triggers `computeHighResFrames` (raw buffer min/max/rms per pixel, spectral color from coarse waveData)
 
-### Known Bugs
-- **Spectrum display**: auto-ranging was recently fixed (was clamping dbMax to 0). If spectrum still looks flat, the issue is in the dB range calculation in `SpectrumDisplay`. The FFT data IS correct (spectral waveform proves it).
-- **LUFS short-term**: only measures final 3s window — should track max across full track
-- **True Peak**: Catmull-Rom approximation, not ITU FIR — acceptable variance but not broadcast-grade
-- **SVG performance**: waveform uses ~600 SVG elements. Fine for static but needs Canvas migration for live viz
+### Known Bugs / Limitations
+- **LUFS short-term**: tracks rolling 3s window at 60fps, not true max across full track
+- **True Peak**: Catmull-Rom approximation, not ITU FIR — acceptable for production use
 
 ## Architecture & Key Decisions
 
@@ -59,43 +65,43 @@ Tolerance band rendered as shaded region ± genre.tolerance dB.
 - `requestAnimationFrame` tick loop for playhead
 
 ## Project Tracker
-See `mix-analyzer-tracker.xlsx` for the full task list (73 features + 14 phases).
+See `mix-analyzer-tracker.xlsx` for the full task list (85 features). Tasks #84–85 are "Want" priority (multi-BPM windowed detection, interactive parametric EQ).
 Key categories: Core Analysis, Playback, Live Viz, Display, Feedback, UI, Reference, Neural/AI, FLP, Infrastructure, Bugs, Version Comparison, Intelligent Feedback.
 
 ## Phase Roadmap
 
-### Phase 1 ✅ (Current)
+### Phase 1 ✅
 Spectral waveform, 3-band stereo, genre targets, slope compensation, band toggles, de-minified code.
 
-### Phase 2 — Live Viz Foundation
-- **Task #12**: 3-band BiquadFilter bank (LP 200Hz / BP 200-4kHz / HP 4kHz) → 6 AnalyserNodes (3 bands × 2 channels)
-- **Task #15**: Live spectrum analyzer — AnalyserNode.getFloatFrequencyData() → Canvas 2D at 30-60fps
-- **Task #24**: Canvas migration for waveform (replace SVG)
-- Layout: Live spectrum above waveform, stereo phase + LUFS beside it
+### Phase 2 ✅
+Live spectrum (Canvas, 60fps, line + spectrograph + M/S), canvas waveform, 3-band BiquadFilter bank.
 
-### Phase 3 — Live Meters + Playback Controls
-- **Task #10**: Volume control (GainNode)
-- **Task #11**: Mono preview (ChannelMerger)
-- **Task #16**: 3-band stereo phase meter (real-time L/R correlation per band)
-- **Task #17**: Live LUFS meter (momentary 400ms + short-term 3s)
+### Phase 3 ✅
+Volume control, mono preview, 3-band stereo phase meter, live LUFS meter, live vectorscope.
 
-### Phase 4 — BPM + Key Detection
-- **Task #6**: BPM via onset detection + autocorrelation in sub/bass bands (20-250Hz)
-- **Task #7**: Key via chromagram (FFT → 12 pitch classes → Krumhansl-Kessler correlation)
-- Windowed analysis for tempo/key changes
-- Colored regions on waveform
+### Phase 4 ✅
+BPM (Web Worker autocorrelation), key detection (chromagram + Krumhansl-Kessler), beat grid with adaptive subdivisions (bar/beat/8th/16th based on zoom).
 
-### Phase 5 — Version Comparison Engine
-- Group multiple files as versions
-- Per-metric delta matrix (LUFS, DR, crest, stereo, spectral)
-- Best-of-each recommendation engine
-- Spectral difference heatmap
-- A/B playback switcher (level-matched, same position)
+### Phase 5 ✅
+Multi-stem tabs, frequency masking detection, A/B reference spectrum overlay (LUFS-normalized).
 
-### Phase 6 — Reference A/B + Interactive EQ
-- Reference track overlay (target curve from reference)
-- Band solo/mute on audio output
-- EQ isolation via BiquadFilter on parallel path
+### Phase 6 ✅
+Reference track loading, LUFS-normalized spectrum overlay (gold dashed), band solo/mute on audio output.
+
+### Phase 6.5 ✅
+- Spacebar play/pause global hotkey
+- Continuous scroll-wheel zoom (1×–32×, cursor-anchored, adaptive beat subdivisions)
+- Resizable meter panels (drag handles between SPEC/PHASE/VECTOR/LUFS)
+- Canvas redraw on resize: ResizeObserver per-canvas + panelW useEffect with rAF
+- Vectorscope: centered in panel, wide-mode shows top half (M>0) in horizontal layout
+- Scrub live update: vectorscope + LUFS meter update from buffer slice during drag-scrub
+- MetricCard: clamp() font sizes, flex min-width 70px
+
+### Phase 6.6 ✅
+- Static Vectorscope (Stereo view): SVG → Canvas migration, DPR-aware
+- Phase meter scrub: software biquad (LP 200Hz / BP 200–4kHz / HP 4kHz) → per-band Pearson correlation during drag-scrub; same draw path as live playback
+- BPM octave correction: doubles detected BPM when < 100 (fixes half-tempo on EDM); same fix in `bpm.js` + `bpmWorker.js`
+- Adaptive waveform resolution: pre-computed frames 600 → 2400 in `sharedFFT.js`; zoom ≥ 4× uses `computeHighResFrames` (raw buffer pass, 1 frame/pixel, spectral color borrowed from 2400-frame waveData)
 
 ### Phase 7 — Python Backend + Neural
 - FastAPI local server

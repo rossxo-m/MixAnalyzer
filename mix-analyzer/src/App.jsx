@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useMemo } from "react";
+import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { THEME } from './theme.js';
 import { BANDS_7, DEFAULT_PREFS } from './constants.js';
 import { GENRE_TARGETS } from './analysis/genres.js';
@@ -13,24 +13,62 @@ import { BandBar } from './components/BandBar.jsx';
 import { Preferences } from './components/Preferences.jsx';
 
 function Vectorscope({ data, size = 190 }) {
-  if (!data.length) return null;
-  const c = size / 2, scale = c * 0.85;
-  return (
-    <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size} style={{ background: "#080812", borderRadius: 7 }}>
-      <line x1={c} y1="0" x2={c} y2={size} stroke="#151525" strokeWidth=".5" />
-      <line x1="0" y1={c} x2={size} y2={c} stroke="#151525" strokeWidth=".5" />
-      <line x1="0" y1={size} x2={size} y2="0" stroke="#12122a" strokeWidth=".3" />
-      <circle cx={c} cy={c} r={scale * 0.5} fill="none" stroke="#151525" strokeWidth=".5" />
-      <circle cx={c} cy={c} r={scale} fill="none" stroke="#151525" strokeWidth=".5" />
-      <text x={c+2} y="9" fill={THEME.dim} fontSize="6" fontFamily={THEME.mono}>M</text>
-      <text x={size-8} y={c-2} fill={THEME.dim} fontSize="6" fontFamily={THEME.mono}>R</text>
-      <text x="2" y={c-2} fill={THEME.dim} fontSize="6" fontFamily={THEME.mono}>L</text>
-      {data.map((p, i) => {
+  const canvasRef = useRef(null);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = size * dpr;
+    canvas.height = size * dpr;
+    const ctx = canvas.getContext("2d");
+    ctx.scale(dpr, dpr);
+
+    const c = size / 2, scale = c * 0.85;
+
+    ctx.fillStyle = "#080812";
+    ctx.fillRect(0, 0, size, size);
+
+    // Axes
+    ctx.strokeStyle = "#151525"; ctx.lineWidth = 0.5;
+    ctx.beginPath(); ctx.moveTo(c, 0); ctx.lineTo(c, size); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, c); ctx.lineTo(size, c); ctx.stroke();
+
+    // Diagonal lines
+    ctx.strokeStyle = "#12122a"; ctx.lineWidth = 0.3;
+    ctx.beginPath(); ctx.moveTo(0, size); ctx.lineTo(size, 0); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(size, size); ctx.stroke();
+
+    // Reference circles
+    ctx.strokeStyle = "#151525"; ctx.lineWidth = 0.5;
+    ctx.beginPath(); ctx.arc(c, c, scale * 0.5, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(c, c, scale, 0, Math.PI * 2); ctx.stroke();
+
+    // Labels
+    ctx.font = `6px '${THEME.mono}', monospace`;
+    ctx.fillStyle = THEME.dim;
+    ctx.textAlign = "center"; ctx.fillText("M", c + 2, 9);
+    ctx.textAlign = "right";  ctx.fillText("R", size - 2, c - 2);
+    ctx.textAlign = "left";   ctx.fillText("L", 2, c - 2);
+
+    // Points
+    if (data.length) {
+      ctx.fillStyle = "rgba(51,170,255,0.1)";
+      for (const p of data) {
         const px = c + p.x * scale, py = c - p.y * scale;
-        return (px >= 0 && px <= size && py >= 0 && py <= size)
-          ? <circle key={i} cx={px} cy={py} r=".6" fill="#33aaff" opacity=".1" /> : null;
-      })}
-    </svg>
+        if (px >= 0 && px <= size && py >= 0 && py <= size) {
+          ctx.fillRect(px - 0.6, py - 0.6, 1.2, 1.2);
+        }
+      }
+    }
+  }, [data, size]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      width={size}
+      height={size}
+      style={{ borderRadius: 7, display: "block" }}
+    />
   );
 }
 

@@ -72,6 +72,7 @@ export function computeBPM(buffer) {
   const doubleLag = bestLag * 2;
   if (doubleLag <= lagMax && score[doubleLag] > bestScore * 0.85) bestLag = doubleLag;
 
-  const bpm = fps * 60 / bestLag;
+  let bpm = fps * 60 / bestLag;
+  if (bpm < 100 && bpm * 2 <= 200) bpm *= 2;
   return Math.round(bpm * 2) / 2;
 }
