@@ -701,9 +701,10 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
   const [position, setPositionState] = useState(0);
   const [zoom, setZoom] = useState(1);        // 1x / 2x / 4x / 8x
   const [scrollPct, setScrollPct] = useState(0); // 0..1, fraction of total duration at left edge
-  const [bandMutes, setBandMutes] = useState([false, false, false]); // LOW/MID/HIGH output mute
+  const [bandMutes, setBandMutes] = useState([false, false, false]); // P6-C: LOW/MID/HIGH output mute
   const bandMutesRef = useRef([false, false, false]);
-  const bandOutGainsRef = useRef(null); // [[lowGainL, lowGainR], [midGainL, midGainR], [highGainL, highGainR]]
+  const bandOutGainsRef = useRef(null); // [[gainL, gainR], [gainL, gainR], [gainL, gainR]]
+  const playFromRef = useRef(null); // Fix 1: stable ref so drag useEffect doesn't re-bind on playFrom identity change
   const zoomRef = useRef(1);
   const scrollPctRef = useRef(0);
   const sourceRef = useRef(null);
@@ -763,32 +764,7 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
   }, [buffer]);
 
   // Drag-scrub: document-level mouse events so drag works outside the canvas
-  useEffect(() => {
-    const onMove = (e) => {
-      if (!isDraggingRef.current || !buffer) return;
-      const canvas = overlayCanvasRef.current;
-      if (!canvas) return;
-      const rect = canvas.getBoundingClientRect();
-      const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-      const visibleFrac = 1 / zoomRef.current;
-      const startFrac = Math.min(scrollPctRef.current, 1 - visibleFrac);
-      const newPos = (startFrac + pct * visibleFrac) * duration;
-      positionRef.current = newPos;
-      if (timeDisplayRef.current) timeDisplayRef.current.textContent = `${fmt(newPos)} / ${fmt(duration)}`;
-      drawOverlay(overlayCanvasRef.current, newPos, duration, zoomRef.current, scrollPctRef.current);
-      scrubDataRef.current = computeScrubData(buffer, newPos);
-      drawLiveSpec(liveSpecCanvasRef.current, null, prefsRef.current.specSlope, prefsRef.current.liveSpecMode, null, false, scrubDataRef.current);
-    };
-    const onUp = () => {
-      if (!isDraggingRef.current) return;
-      isDraggingRef.current = false;
-      document.body.style.cursor = '';
-      if (playingRef.current) playFrom(positionRef.current);
-    };
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-    return () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
-  }, [buffer, duration, playFrom]);
+  
 
   const killSource = useCallback(() => {
     cancelAnimationFrame(animRef.current); animRef.current = null;
@@ -811,12 +787,12 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
   // Cleanup on unmount
   useEffect(() => { return () => killSource(); }, [killSource]);
 
-  // P6-C: Toggle band mute — updates live gain without rebuilding the graph
+  // P6-C: Toggle band output mute — mutates gain directly, no graph rebuild
   const toggleBandMute = useCallback((i) => {
     setBandMutes(prev => {
       const next = [...prev];
       next[i] = !next[i];
-      if (next.every(Boolean)) return prev; // at least one band must stay audible
+      if (next.every(Boolean)) return prev; // at least one band must be audible
       bandMutesRef.current = next;
       if (bandOutGainsRef.current) {
         bandOutGainsRef.current[i].forEach(g => { g.gain.value = next[i] ? 0 : 1; });
@@ -832,16 +808,13 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
     const src = audioCtx.createBufferSource();
     src.buffer = buffer;
 
-    // ── Phase 3 + P6-C: Banded output path (LOW/MID/HIGH mute/solo) ──
-    // src → outputSplitter → 3 bands × 2ch → 6 GainNodes → outputMerger → masterGain → destination
+    // ── Phase 3 + P6-C: Master gain + output routing ──
     const gain = audioCtx.createGain();
     gain.gain.value = prefsRef.current.volume ?? 1.0;
     gainRef.current = gain;
 
-    const mutes = bandMutesRef.current;
-
     if (prefsRef.current.monoPreview && buffer.numberOfChannels >= 2) {
-      // Mono preview: bypass banded output, use simple path
+      // Mono preview: simple path, banded solo bypassed
       src.connect(gain);
       const merger = audioCtx.createChannelMerger(1);
       gain.connect(merger, 0, 0);
@@ -849,23 +822,23 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
       monoMergerRef.current = merger;
       bandOutGainsRef.current = null;
     } else {
-      // Banded stereo output — 3 bands × L/R → ChannelMerger(2) → masterGain → destination
+      // P6-C: Banded stereo output — 3 bands × L/R → ChannelMerger(2) → masterGain → destination
       const outSplitter = audioCtx.createChannelSplitter(2);
       const outMerger = audioCtx.createChannelMerger(2);
       src.connect(outSplitter);
-      const outBandGains = [];
+      const mutes = bandMutesRef.current;
       const bandDefs = [
         () => { const f = audioCtx.createBiquadFilter(); f.type = "lowpass";  f.frequency.value = 200;  f.Q.value = 0.707; return f; },
         () => { const hp = audioCtx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 200;  hp.Q.value = 0.707;
                 const lp = audioCtx.createBiquadFilter(); lp.type = "lowpass";  lp.frequency.value = 4000; lp.Q.value = 0.707; hp.connect(lp); return { entry: hp, exit: lp }; },
         () => { const f = audioCtx.createBiquadFilter(); f.type = "highpass"; f.frequency.value = 4000; f.Q.value = 0.707; return f; },
       ];
+      const outBandGains = [];
       for (let b = 0; b < 3; b++) {
         const bandGains = [];
         for (let ch = 0; ch < 2; ch++) {
-          const def = bandDefs[b](ch);
-          const entry = def.entry ?? def;
-          const exit  = def.exit  ?? def;
+          const def = bandDefs[b]();
+          const entry = def.entry ?? def, exit = def.exit ?? def;
           const g = audioCtx.createGain();
           g.gain.value = mutes[b] ? 0 : 1;
           outSplitter.connect(entry, ch);
@@ -939,7 +912,8 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
       if (sourceRef.current === src) {
         sourceRef.current = null; playingRef.current = false;
         cancelAnimationFrame(animRef.current);
-        setPlaying(false); setPositionState(0); positionRef.current = 0;
+        positionRef.current = 0; // Fix 2: ref before state so any triggered effect reads correct value
+        setPlaying(false); setPositionState(0);
         drawOverlay(overlayCanvasRef.current, 0, buffer.duration);
       }
     };
@@ -973,6 +947,45 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
     animRef.current = requestAnimationFrame(tick);
   }, [buffer, audioCtx, killSource]);
 
+  // Fix 1: keep playFromRef in sync so drag effect doesn't re-bind on playFrom identity changes
+  useEffect(() => { playFromRef.current = playFrom; }, [playFrom]);
+
+  // Drag-scrub: document-level so drag works outside canvas
+  // Fix 3 (corrected): throttle only the FFT+draw, not the overlay — overlay stays at full mouse rate
+  useEffect(() => {
+    let lastScrubT = 0;
+    const onMove = (e) => {
+      if (!isDraggingRef.current || !buffer) return;
+      const canvas = overlayCanvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const visibleFrac = 1 / zoomRef.current;
+      const startFrac = Math.min(scrollPctRef.current, 1 - visibleFrac);
+      const newPos = (startFrac + pct * visibleFrac) * duration;
+      // Overlay + time display: always at full mouse rate
+      positionRef.current = newPos;
+      if (timeDisplayRef.current) timeDisplayRef.current.textContent = `${fmt(newPos)} / ${fmt(duration)}`;
+      drawOverlay(overlayCanvasRef.current, newPos, duration, zoomRef.current, scrollPctRef.current);
+      // FFT scrub: throttled to ~60fps — computeScrubData is a full N=4096 FFT
+      const now = performance.now();
+      if (now - lastScrubT >= 16) {
+        lastScrubT = now;
+        scrubDataRef.current = computeScrubData(buffer, newPos);
+        drawLiveSpec(liveSpecCanvasRef.current, null, prefsRef.current.specSlope, prefsRef.current.liveSpecMode, null, false, scrubDataRef.current);
+      }
+    };
+    const onUp = () => {
+      if (!isDraggingRef.current) return;
+      isDraggingRef.current = false;
+      document.body.style.cursor = '';
+      // Fix 1: use ref — avoids playFrom in dep array, prevents listener re-bind on every playFrom identity change
+      if (playingRef.current) playFromRef.current?.(positionRef.current);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    return () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+  }, [buffer, duration]); // playFrom removed from deps — accessed via playFromRef
   const toggle = useCallback(() => {
     if (playingRef.current) killSource(); else playFrom(positionRef.current);
   }, [killSource, playFrom]);
@@ -1051,12 +1064,13 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
 
         {/* Phase 3: Mono preview toggle */}
         <button onClick={() => {
-          setPrefs(p => ({ ...p, monoPreview: !p.monoPreview }));
-          // Restart playback to rebuild audio graph with mono/stereo
-          if (playingRef.current) {
-            const pos = positionRef.current;
-            setTimeout(() => playFrom(pos), 0);
-          }
+          const newMono = !prefsRef.current.monoPreview;
+          // Fix 4 (corrected): force-sync prefsRef before rebuilding graph — setTimeout/rAF both
+          // race against the useEffect([prefs]) sync and neither reliably wins. Direct mutation
+          // is safe here because setPrefs will overwrite it on next render anyway.
+          prefsRef.current = { ...prefsRef.current, monoPreview: newMono };
+          setPrefs(p => ({ ...p, monoPreview: newMono }));
+          if (playingRef.current) playFrom(positionRef.current);
         }} style={{
           padding: "2px 6px", fontSize: 7, fontFamily: THEME.mono,
           background: prefs.monoPreview ? "#ff885522" : THEME.card,
@@ -1073,12 +1087,13 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
               background: bandMutes[i] ? "#33333344" : band.color + "22",
               color: bandMutes[i] ? THEME.dim : band.color,
               border: `1px solid ${bandMutes[i] ? THEME.border : band.color + "44"}`,
-              borderRadius: 3, cursor: "pointer", textDecoration: bandMutes[i] ? "line-through" : "none",
+              borderRadius: 3, cursor: "pointer",
+              textDecoration: bandMutes[i] ? "line-through" : "none",
             }}>{band.name}</button>
           ))}
         </div>
 
-        {/* Band toggles */}
+        {/* Band toggles (waveform display) */}
         <div style={{ marginLeft: "auto", display: "flex", gap: 3 }}>
           {BANDS_3.map((band, i) => (
             <button key={band.name} onClick={() => {
