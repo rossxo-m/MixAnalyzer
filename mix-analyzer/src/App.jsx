@@ -272,7 +272,7 @@ export default function MixAnalyzer() {
           {activeTab >= 0 && current && !current.error && (
             <div>
               <PlaybackWaveform
-                buffer={currentBuffer} audioCtx={audioCtxRef.current}
+                buffer={currentBuffer} audioCtx={audioCtxRef.current /* eslint-disable-line react-hooks/refs -- stable singleton AudioContext, set once on first gesture, never reassigned */}
                 waveData={current.analysis.spectralWaveform}
                 duration={current.analysis.duration} prefs={prefs} setPrefs={setPrefs}
                 bpm={current.analysis.bpm}

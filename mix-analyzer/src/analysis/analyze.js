@@ -16,7 +16,7 @@ function computeVectorscope(buffer, numPoints = 5000) {
   return points;
 }
 
-export function analyze(buffer, prefs) {
+export function analyze(buffer, _prefs) { // _prefs reserved — Phase 7 will use for genre/target overrides
   const sr = buffer.sampleRate, nCh = buffer.numberOfChannels, len = buffer.length;
   const L = buffer.getChannelData(0), R = nCh > 1 ? buffer.getChannelData(1) : L;
 

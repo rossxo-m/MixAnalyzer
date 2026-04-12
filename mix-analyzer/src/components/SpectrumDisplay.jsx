@@ -62,7 +62,7 @@ export function SpectrumDisplay({ points, pointsS, slope, genre, refPoints }) {
   }).join(" ");
 
   // Build colored fill segments per band
-  const bandFills = BANDS_3.map((band, bi) => {
+  const bandFills = BANDS_3.map((band) => {
     const pts = compensated.filter(p => p.freq >= band.min && p.freq <= band.max);
     if (pts.length < 2) return null;
     const startIdx = compensated.indexOf(pts[0]);

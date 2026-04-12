@@ -2,9 +2,8 @@ import { THEME } from '../theme.js';
 import { DEFAULT_PREFS, GENRE_COLORS } from '../constants.js';
 import { GENRE_TARGETS } from '../analysis/genres.js';
 
-export function Preferences({ prefs, setPrefs, onClose }) {
-  const update = (key, val) => setPrefs(p => ({ ...p, [key]: val }));
-  const Slider = ({ label, k, min, max, step, unit }) => (
+function PrefSlider({ label, k, min, max, step, unit, prefs, update }) {
+  return (
     <div style={{ marginBottom: 9 }}>
       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 8, color: THEME.sub, fontFamily: THEME.mono, marginBottom: 1 }}>
         <span>{label}</span><span>{prefs[k]}{unit}</span>
@@ -12,6 +11,10 @@ export function Preferences({ prefs, setPrefs, onClose }) {
       <input type="range" min={min} max={max} step={step} value={prefs[k]} onChange={e => update(k, +e.target.value)} style={{ width: "100%", accentColor: THEME.accent, height: 4 }} />
     </div>
   );
+}
+
+export function Preferences({ prefs, setPrefs, onClose }) {
+  const update = (key, val) => setPrefs(p => ({ ...p, [key]: val }));
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "#000a", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
@@ -33,10 +36,10 @@ export function Preferences({ prefs, setPrefs, onClose }) {
           </select>
         </div>
 
-        <Slider label="LUFS Target" k="lufsTarget" min={-16} max={-4} step={0.5} unit=" LUFS" />
-        <Slider label="True Peak Ceiling" k="truePeakCeiling" min={-3} max={0} step={0.1} unit=" dBTP" />
-        <Slider label="Mono Crossover" k="monoCrossover" min={60} max={200} step={10} unit=" Hz" />
-        <Slider label="Spectrum Slope" k="specSlope" min={0} max={4.5} step={1.5} unit=" dB/oct" />
+        <PrefSlider label="LUFS Target" k="lufsTarget" min={-16} max={-4} step={0.5} unit=" LUFS" prefs={prefs} update={update} />
+        <PrefSlider label="True Peak Ceiling" k="truePeakCeiling" min={-3} max={0} step={0.1} unit=" dBTP" prefs={prefs} update={update} />
+        <PrefSlider label="Mono Crossover" k="monoCrossover" min={60} max={200} step={10} unit=" Hz" prefs={prefs} update={update} />
+        <PrefSlider label="Spectrum Slope" k="specSlope" min={0} max={4.5} step={1.5} unit=" dB/oct" prefs={prefs} update={update} />
 
         <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
           {[["showVectorscope", "Vectorscope"], ["showBandWidth", "Stereo Bands"]].map(([k, n]) => (

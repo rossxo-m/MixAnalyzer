@@ -5,4 +5,5 @@ import { viteSingleFile } from 'vite-plugin-singlefile'
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => ({
   plugins: mode === 'singlefile' ? [react(), viteSingleFile()] : [react()],
+  base: mode === 'singlefile' ? './' : '/MixAnalyzer/',
 }))

@@ -460,7 +460,7 @@ function drawPhaseMeter(canvas, filterBank) {
     }
     diffRms = Math.sqrt(diffRms / n);
     sumRms = Math.sqrt(sumRms / n);
-    const width = sumRms > 0.0001 ? Math.min(1, diffRms / sumRms) : 0;
+    const _width = sumRms > 0.0001 ? Math.min(1, diffRms / sumRms) : 0; // reserved for future per-band width display
 
     const y = band * rowH;
     const barLeft = 35, barRight = W - 30, barW = barRight - barLeft;
@@ -692,6 +692,9 @@ function drawVectorscope(canvas, filterBank) {
   }
 }
 
+// Module-level — no props/state dependency; safe to use in effects and render
+const fmt = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+
 /* ════════════════════════════════════════════════════
    PLAYBACK with Canvas waveform + Live Spectrum + Filter Bank + Meters
    ════════════════════════════════════════════════════ */
@@ -758,7 +761,7 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
   // Stop playback on buffer change (tab switch)
   useEffect(() => {
     positionRef.current = 0;
-    setPositionState(0);
+    setPositionState(0); // eslint-disable-line -- intentional reset on buffer swap
     drawLiveSpec(liveSpecCanvasRef.current, null, prefsRef.current.specSlope, prefsRef.current.liveSpecMode, null, prefsRef.current.specMs);
     drawVectorscope(vsCanvasRef.current, null);
   }, [buffer]);
@@ -769,15 +772,15 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
   const killSource = useCallback(() => {
     cancelAnimationFrame(animRef.current); animRef.current = null;
     const src = sourceRef.current;
-    if (src) { src.onended = null; try { src.disconnect(); } catch(e) {} try { src.stop(0); } catch(e) {} sourceRef.current = null; }
+    if (src) { src.onended = null; try { src.disconnect(); } catch { /* disconnect errors are non-fatal */ } try { src.stop(0); } catch { /* disconnect errors are non-fatal */ } sourceRef.current = null; }
     // Disconnect filter bank
     if (filterBankRef.current) {
-      filterBankRef.current.nodes.forEach(n => { try { n.disconnect(); } catch(e) {} });
+      filterBankRef.current.nodes.forEach(n => { try { n.disconnect(); } catch { /* disconnect errors are non-fatal */ } });
       filterBankRef.current = null;
     }
     // Phase 3: Disconnect gain + mono nodes
-    if (gainRef.current) { try { gainRef.current.disconnect(); } catch(e) {} gainRef.current = null; }
-    if (monoMergerRef.current) { try { monoMergerRef.current.disconnect(); } catch(e) {} monoMergerRef.current = null; }
+    if (gainRef.current) { try { gainRef.current.disconnect(); } catch { /* disconnect errors are non-fatal */ } gainRef.current = null; }
+    if (monoMergerRef.current) { try { monoMergerRef.current.disconnect(); } catch { /* disconnect errors are non-fatal */ } monoMergerRef.current = null; }
     bandOutGainsRef.current = null;
     specAnalyserRef.current = null;
     playingRef.current = false; setPlaying(false);
@@ -1034,7 +1037,6 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
 
   const SPEC_W = 560, W = 760, H = 120, LSH = 90;
   const PHASE_W = 150, LUFS_W = 90;
-  const fmt = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
   const isSpectral = prefs.waveMode === "spectral";
   const toggles = prefs.bandToggles;
   const vol = Math.round((prefs.volume ?? 1) * 100);
