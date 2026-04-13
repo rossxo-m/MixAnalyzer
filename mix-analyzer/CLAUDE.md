@@ -5,7 +5,7 @@ A browser-based audio analysis tool for EDM producers. React single-page app wit
 
 The primary user is an FL Studio EDM producer building this as a personal tool that could grow into a product.
 
-## Current State (Phases 1–6.6 Complete, Phase 7 branch active)
+## Current State (Phases 1–6.8 Complete, Phase 7 branch active)
 Modularized into `src/dsp/`, `src/analysis/`, `src/components/`. All canvas-based. Branch: `feature/phase7-prep`.
 
 ### Working Features
@@ -32,6 +32,12 @@ Modularized into `src/dsp/`, `src/analysis/`, `src/components/`. All canvas-base
 - **Phase meter scrub**: software biquad LP/BP/HP per band → Pearson correlation during drag-scrub
 - **BPM octave correction**: doubles result when detected < 100 BPM (fixes half-tempo on EDM tracks)
 - **Adaptive waveform resolution**: 2400 pre-computed frames (up from 600); zoom ≥ 4× triggers `computeHighResFrames` (raw buffer min/max/rms per pixel, spectral color from coarse waveData)
+- **UI contrast**: THEME.dim/sub/text raised to #6666a0 / #9090c0 / #f0f0ff for legible section labels at all brightness levels
+- **Waveform clip strip**: 3px red bar at top of waveform per frame where `mx ≥ 0.999 || mn ≤ -0.999`; scales with zoom (uses `computeHighResFrames` data at zoom ≥ 4×)
+- **LUFS meter target line**: green dashed line at `prefs.lufsTarget`; `drawLufsMeter` accepts `prefs` as 4th arg (no clip LED — removed)
+- **dB peak meter**: `drawDBMeter` in `src/canvas/drawers.js` — 28px L/R vertical bars left of waveform canvas; true peak (not RMS), 3s peak hold ticks, clip flash at 0 dBFS, color zones (blue → orange → red at −3dBFS); `resetDBMeterState()` on stop
+- **Body CSS reset**: `index.html` style tag — `margin:0; background:#0b0b16` eliminates browser default white border
+- **`computeHighResFrames` per-channel peaks**: both `ch0`+`ch1` scanned for `mx`/`mn` at zoom ≥ 4×, consistent with sharedFFT per-channel fix; RMS still from mid signal
 
 ### Known Bugs / Limitations
 - **LUFS short-term**: tracks rolling 3s window at 60fps, not true max across full track
@@ -103,6 +109,23 @@ Reference track loading, LUFS-normalized spectrum overlay (gold dashed), band so
 - BPM octave correction: doubles detected BPM when < 100 (fixes half-tempo on EDM); same fix in `bpm.js` + `bpmWorker.js`
 - Adaptive waveform resolution: pre-computed frames 600 → 2400 in `sharedFFT.js`; zoom ≥ 4× uses `computeHighResFrames` (raw buffer pass, 1 frame/pixel, spectral color borrowed from 2400-frame waveData)
 
+### Phase 6.7 ✅
+- **UI contrast**: THEME `dim`/`sub`/`text` raised to `#6666a0` / `#9090c0` / `#f0f0ff` — all section labels and metadata readable at normal brightness
+- **Waveform clip strip**: 3px red bar at y=0 for every frame where `mx ≥ 0.999 || mn ≤ -0.999`; correct at all zoom levels
+- **LUFS meter target line**: green dashed horizontal at `prefs.lufsTarget` dB, visible in both live and scrub modes
+
+### Phase 6.8 ✅
+- **dB peak meter**: `drawDBMeter` in `src/canvas/drawers.js`; 28px L/R vertical bars to the left of the waveform canvas; true peak detection per channel, 3s peak hold ticks, 0 dBFS clip flash, color zones blue/orange/red; `resetDBMeterState()` on stop/kill
+- **Body CSS reset**: `index.html` `<style>` tag — `margin:0; background:#0b0b16` eliminates browser default white border around web app
+- **`computeHighResFrames` per-channel peaks**: zoom ≥ 4× now scans both ch0+ch1 for `mx`/`mn`; RMS still from mid — consistent with sharedFFT per-channel fix, clip strip works at all zoom levels
+- **LUFS CLIP LED removed**: reverted; `drawLufsMeter` keeps only the target line enhancement
+
+### Phase 7 Prep (in progress)
+- Canvas draw extraction: `src/canvas/drawers.js` — `drawLiveSpec`, `drawWaveCanvas`, `drawOverlay`, `drawVectorscope`, `drawLufsMeter`, `drawPhaseMeter` extracted from `PlaybackWaveform.jsx` (1494 → 729 lines)
+- Full analyze() Web Worker: `src/workers/analyzeWorker.js` — entire DSP pipeline runs off main thread via `analyzeAsync()`. Uses `type: 'module'` with Vite-bundled imports. UI stays responsive during analysis.
+- Feedback tier chain: `src/api/client.js` — `generateFeedback(data, prefs, {tier})` with Tier 3 → Tier 1 fallback. `.env.example` with `VITE_API_URL`. Tier 3 stub POSTs to backend `/feedback` endpoint.
+- SpectrumDisplay SVG → Canvas: DPR-aware, ResizeObserver, preserves all visuals (spectrum curve, genre tolerance band, reference overlay, M/S, grid, labels)
+
 ### Phase 7 — Python Backend + Neural
 - FastAPI local server
 - yt-dlp for SoundCloud/YouTube downloads
@@ -159,6 +182,21 @@ src/
   theme.js             # THEME constants
   constants.js         # BANDS_7, BANDS_3, DEFAULT_PREFS
 ```
+
+## AI Coding Rules
+
+These rules apply to all AI-assisted edits in this project. They are non-negotiable.
+
+1. **Read before editing** — always read a file with a file tool before modifying it. Never edit from memory or assumption.
+2. **No full rewrites of files over 50 lines** — use targeted, surgical edits only. Prefer `Edit` over `Write` for existing files.
+3. **Incremental changes only** — evolve existing systems; do not replace working code with redesigns unless explicitly asked.
+4. **DSP correctness is non-negotiable** — preserve all DSP math exactly. Do not simplify, reformat, or "clean up" biquad coefficients, FFT indexing, or K-weighting filters unless fixing a verified bug.
+5. **Performance-first** — no regressions in canvas frame rate, FFT throughput, or scrub latency. Measure before claiming improvement.
+6. **No new dependencies without justification** — all DSP is custom; keep it that way. Any new npm package requires explicit user approval.
+7. **Do not add docstrings, comments, or type annotations to untouched code** — only comment logic that is genuinely non-obvious.
+8. **Do not add error handling or validation for internal code paths** — only validate at system boundaries (file I/O, Worker messages, external API responses).
+9. **Preserve module purity** — `src/dsp/` functions must remain stateless and have no React or DOM imports.
+10. **Canvas DPR discipline** — all canvas draw functions must account for `devicePixelRatio`. Never set `canvas.width` without multiplying by `dpr`.
 
 ## Commands
 ```bash

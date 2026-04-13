@@ -1,9 +1,30 @@
+/**
+ * Analyze Worker — runs the full analyze() pipeline off the main thread.
+ *
+ * Message in:  { channelL: Float32Array, channelR: Float32Array|null, sampleRate: number }
+ * Message out: { result: Object }  (the complete analysis result)
+ *
+ * Uses type: 'module' so Vite bundles the DSP imports into the Worker chunk.
+ */
+
 import { computeLUFS } from '../dsp/lufs.js';
 import { computeTruePeak } from '../dsp/truepeak.js';
 import { computeSharedFFT } from '../dsp/sharedFFT.js';
 import { computeSpectrum } from '../dsp/spectrum.js';
 import { computeStereo } from '../dsp/stereo.js';
 import { computeKey } from '../dsp/key.js';
+
+// Lightweight buffer shim that matches the AudioBuffer interface used by DSP functions:
+// .sampleRate, .numberOfChannels, .length, .getChannelData(ch)
+function makeBufferShim(channelL, channelR, sampleRate) {
+  const channels = channelR ? [channelL, channelR] : [channelL];
+  return {
+    sampleRate,
+    numberOfChannels: channels.length,
+    length: channelL.length,
+    getChannelData(ch) { return channels[ch] || channels[0]; },
+  };
+}
 
 function computeVectorscope(buffer, numPoints = 5000) {
   if (buffer.numberOfChannels < 2) return [];
@@ -16,12 +37,11 @@ function computeVectorscope(buffer, numPoints = 5000) {
   return points;
 }
 
-export function analyze(buffer, _prefs) { // _prefs reserved — Phase 7 will use for genre/target overrides
+function analyze(buffer) {
   const sr = buffer.sampleRate, nCh = buffer.numberOfChannels, len = buffer.length;
   const L = buffer.getChannelData(0), R = nCh > 1 ? buffer.getChannelData(1) : L;
 
   // Combined single-pass scan: peak, RMS, stereo correlation, clipping
-  // Replaces 4 separate full-buffer loops — same accumulators, identical outputs
   const isStereo = nCh > 1;
   let peak = 0, sumSq = 0, sLR = 0, sLL = 0, sRR = 0, clipSamples = 0;
   for (let i = 0; i < len; i++) {
@@ -43,7 +63,6 @@ export function analyze(buffer, _prefs) { // _prefs reserved — Phase 7 will us
   const truePeak = computeTruePeak(buffer);
   const lufsData = computeLUFS(buffer);
 
-  // Shared FFT pipeline: one buffer traversal feeds spectrum, stereo, and key (P5.3)
   const shared = computeSharedFFT(buffer);
   const specData = computeSpectrum(shared);
   const stereoData = computeStereo(shared);
@@ -79,87 +98,15 @@ export function analyze(buffer, _prefs) { // _prefs reserved — Phase 7 will us
     clippingMs: +((clipSamples / sr) * 1000).toFixed(1),
     duration: +(len / sr).toFixed(1),
     sampleRate: sr, numChannels: nCh,
-    bpm: null, // populated asynchronously via analyzeBPM()
+    bpm: null,
     key: keyData.key, keyRoot: keyData.root, keyMode: keyData.mode,
     keyConfidence: keyData.confidence, chroma: keyData.chroma,
   };
 }
 
-/**
- * analyzeAsync — runs the full analyze() pipeline in a Web Worker.
- * Returns a Promise<Object> that resolves with the complete analysis result.
- * The main thread stays responsive while DSP runs off-thread.
- */
-export function analyzeAsync(buffer) {
-  return new Promise((resolve, reject) => {
-    const worker = new Worker(
-      new URL('../workers/analyzeWorker.js', import.meta.url),
-      { type: 'module' },
-    );
-
-    const L = buffer.getChannelData(0);
-    const hasR = buffer.numberOfChannels > 1;
-    const R = hasR ? buffer.getChannelData(1) : null;
-
-    const channelL = new Float32Array(L);
-    const channelR = hasR ? new Float32Array(R) : null;
-
-    const transferList = [channelL.buffer];
-    if (channelR) transferList.push(channelR.buffer);
-
-    worker.onmessage = ({ data }) => {
-      worker.terminate();
-      resolve(data.result);
-    };
-    worker.onerror = (e) => {
-      worker.terminate();
-      reject(e);
-    };
-
-    worker.postMessage(
-      { channelL, channelR, sampleRate: buffer.sampleRate },
-      transferList,
-    );
-  });
-}
-
-/**
- * analyzeBPM — runs computeBPM in a Web Worker so the main thread is never blocked.
- * Returns a Promise<number> that resolves with the BPM value.
- *
- * Channel data is transferred (zero-copy) to the Worker and back.
- * The caller should patch their analysis state when the Promise resolves.
- */
-export function analyzeBPM(buffer) {
-  return new Promise((resolve, reject) => {
-    const worker = new Worker(new URL('../dsp/bpmWorker.js', import.meta.url), { type: 'classic' });
-
-    const L = buffer.getChannelData(0);
-    const hasR = buffer.numberOfChannels > 1;
-    const R = hasR ? buffer.getChannelData(1) : null;
-
-    // Copy channel data — we can't transfer the AudioBuffer's internal buffers directly
-    // (they're not detachable), so we clone into new Float32Arrays for transfer.
-    const channelL = new Float32Array(L);
-    const channelR = hasR ? new Float32Array(R) : null;
-
-    const transferList = [channelL.buffer];
-    if (channelR) transferList.push(channelR.buffer);
-
-    worker.onmessage = ({ data }) => {
-      worker.terminate();
-      resolve(data.bpm);
-    };
-    worker.onerror = (e) => {
-      worker.terminate();
-      reject(e);
-    };
-
-    worker.postMessage(
-      { channelL, channelR, sampleRate: buffer.sampleRate },
-      transferList,
-    );
-  });
-}
-
-
+self.onmessage = function({ data }) {
+  const { channelL, channelR, sampleRate } = data;
+  const buffer = makeBufferShim(channelL, channelR, sampleRate);
+  const result = analyze(buffer);
+  self.postMessage({ result });
+};

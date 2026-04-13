@@ -2,8 +2,8 @@ import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { THEME } from './theme.js';
 import { BANDS_7, DEFAULT_PREFS } from './constants.js';
 import { GENRE_TARGETS } from './analysis/genres.js';
-import { analyze, analyzeBPM } from './analysis/analyze.js';
-import { generateFeedback } from './analysis/feedback.js';
+import { analyzeAsync, analyzeBPM } from './analysis/analyze.js';
+import { generateFeedback } from './api/client.js';
 import { PlaybackWaveform } from './components/PlaybackWaveform.jsx';
 import { SpectrumDisplay } from './components/SpectrumDisplay.jsx';
 import { StereoDisplay3Band } from './components/StereoDisplay3Band.jsx';
@@ -136,9 +136,9 @@ export default function MixAnalyzer() {
       try {
         const arrayBuf = await files[i].arrayBuffer();
         const audioBuf = await ctx.decodeAudioData(arrayBuf);
-        await new Promise(r => setTimeout(r, 50));
-        const analysis = analyze(audioBuf, prefs);
-        const feedback = generateFeedback(analysis, prefs);
+        setProgress(`${i + 1}/${files.length}: analyzing ${files[i].name}...`);
+        const analysis = await analyzeAsync(audioBuf);
+        const feedback = await generateFeedback(analysis, prefs);
         results.push({ name: files[i].name, analysis, feedback });
         bufs.push(audioBuf);
 
@@ -171,12 +171,12 @@ export default function MixAnalyzer() {
     try {
       const arrayBuf = await file.arrayBuffer();
       const audioBuf = await ctx.decodeAudioData(arrayBuf);
-      const analysis = analyze(audioBuf, prefs);
+      const analysis = await analyzeAsync(audioBuf);
       setRefStem({ name: file.name, analysis });
     } catch {
       // ref load failure is non-fatal
     }
-  }, [prefs]);
+  }, []);
 
   const handleDrop = useCallback((e) => {
     e.preventDefault(); setDragOver(false);

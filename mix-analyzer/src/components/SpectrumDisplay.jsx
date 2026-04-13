@@ -1,13 +1,23 @@
-import { useState } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { THEME } from '../theme.js';
 import { BANDS_3 } from '../constants.js';
 import { GENRE_COLORS } from '../constants.js';
 import { GENRE_CURVES, interpolateTargetCurve } from '../analysis/genres.js';
 
-export function SpectrumDisplay({ points, pointsS, slope, genre, refPoints }) {
-  const [msMode, setMsMode] = useState(false);
-  if (!points?.length) return null;
-  const W = 760, H = 220;
+function drawSpectrum(canvas, points, pointsS, slope, genre, refPoints, msMode) {
+  if (!canvas || !points?.length) return;
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  const PW = Math.round(rect.width * dpr);
+  const PH = Math.round(rect.height * dpr);
+  if (canvas.width !== PW || canvas.height !== PH) {
+    canvas.width = PW; canvas.height = PH;
+  }
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  const W = rect.width, H = rect.height;
   const fMin = points[0]?.freq || 20, fMax = points[points.length - 1]?.freq || 20000;
   const genreColor = genre ? (GENRE_COLORS[genre] || "#ffcc44") : "#ffcc44";
 
@@ -25,7 +35,7 @@ export function SpectrumDisplay({ points, pointsS, slope, genre, refPoints }) {
     return { freq: p.freq, db: p.db + octavesFromRef * slope };
   }) : null;
 
-  // Auto-range: tighter range centered on data for better visual spread
+  // Auto-range
   let dataMin = Infinity, dataMax = -Infinity;
   for (const p of compensated) {
     if (p.db > dataMax) dataMax = p.db;
@@ -37,54 +47,229 @@ export function SpectrumDisplay({ points, pointsS, slope, genre, refPoints }) {
       if (p.db < dataMin && p.db > -100) dataMin = p.db;
     }
   }
-  // Tighter minimum span (36dB) so curves fill more of the display
   const minSpan = 36;
   if (dataMax - dataMin < minSpan) {
     const center = (dataMax + dataMin) / 2;
     dataMax = center + minSpan / 2;
     dataMin = center - minSpan / 2;
   }
-  // Round to nice grid values, pad by 3dB (tighter padding)
   const dbMax = Math.ceil(dataMax / 6) * 6 + 3;
   const dbMin = Math.floor(dataMin / 6) * 6 - 3;
   const dbRange = dbMax - dbMin || 1;
 
-  // Map frequency to x (log scale)
   const fToX = f => (Math.log(f / fMin) / Math.log(fMax / fMin)) * W;
-  // Map dB to y
   const dbToY = db => H - ((db - dbMin) / dbRange) * H;
 
-  // Build path — main curve
-  const pathD = compensated.map((p, i) => {
-    const x = (i / (compensated.length - 1)) * W;
-    const y = Math.max(0, Math.min(H, dbToY(p.db)));
-    return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(" ");
+  // Background
+  ctx.fillStyle = "#080812";
+  ctx.fillRect(0, 0, W, H);
 
-  // Build colored fill segments per band
-  const bandFills = BANDS_3.map((band) => {
-    const pts = compensated.filter(p => p.freq >= band.min && p.freq <= band.max);
-    if (pts.length < 2) return null;
-    const startIdx = compensated.indexOf(pts[0]);
-    const d = pts.map((p, i) => {
-      const x = ((startIdx + i) / (compensated.length - 1)) * W;
-      const y = Math.max(0, Math.min(H, dbToY(p.db)));
-      return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
-    }).join(" ");
-    const xStart = (startIdx / (compensated.length - 1)) * W;
-    const xEnd = ((startIdx + pts.length - 1) / (compensated.length - 1)) * W;
-    return { d: d + ` L${xEnd.toFixed(1)},${H} L${xStart.toFixed(1)},${H} Z`, color: band.color };
-  }).filter(Boolean);
-
-  // Grid lines
-  const gridLines = [];
+  // dB grid
   for (let db = dbMin; db <= dbMax; db += 6) {
-    gridLines.push(db);
+    const y = dbToY(db);
+    const isMajor = db % 12 === 0;
+    ctx.strokeStyle = isMajor ? "#222240" : "#141428";
+    ctx.lineWidth = isMajor ? 1 : 0.5;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+    ctx.font = `7px '${THEME.mono}', monospace`;
+    ctx.fillStyle = isMajor ? "#4a4a65" : "#2a2a44";
+    ctx.textAlign = "right";
+    ctx.fillText(`${db}`, W - 3, y - 2);
   }
 
-  const freqLabels = [20, 30, 50, 80, 100, 150, 200, 300, 500, 800, 1000, 1500, 2000, 3000, 5000, 8000, 10000, 15000, 20000].filter(f => f >= fMin && f <= fMax);
-  // Thin vertical freq grid
+  // Freq grid
   const freqGrid = [50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000].filter(f => f >= fMin && f <= fMax);
+  for (const f of freqGrid) {
+    const x = fToX(f);
+    const isMajor = [100, 1000, 10000].includes(f);
+    ctx.strokeStyle = isMajor ? "#1a1a30" : "#111125";
+    ctx.lineWidth = isMajor ? 0.6 : 0.4;
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+  }
+
+  // Build main curve points
+  const len = compensated.length;
+  const ptsX = new Float32Array(len), ptsY = new Float32Array(len);
+  for (let i = 0; i < len; i++) {
+    ptsX[i] = (i / (len - 1)) * W;
+    ptsY[i] = Math.max(0, Math.min(H, dbToY(compensated[i].db)));
+  }
+
+  // Band-colored fills
+  for (const band of BANDS_3) {
+    const i0 = compensated.findIndex(p => p.freq >= band.min);
+    const i1 = compensated.findIndex(p => p.freq >= band.max);
+    if (i0 < 0 || i1 < 0 || i0 >= i1) continue;
+    ctx.beginPath();
+    ctx.moveTo(ptsX[i0], ptsY[i0]);
+    for (let i = i0 + 1; i <= i1; i++) ctx.lineTo(ptsX[i], ptsY[i]);
+    ctx.lineTo(ptsX[i1], H); ctx.lineTo(ptsX[i0], H); ctx.closePath();
+    ctx.fillStyle = band.color + "1e";
+    ctx.fill();
+  }
+
+  // Fill under curve with gradient
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, "rgba(51,170,255,0.25)");
+  grad.addColorStop(1, "rgba(51,170,255,0.02)");
+  ctx.beginPath();
+  ctx.moveTo(ptsX[0], ptsY[0]);
+  for (let i = 1; i < len; i++) ctx.lineTo(ptsX[i], ptsY[i]);
+  ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath();
+  ctx.fillStyle = grad; ctx.fill();
+
+  // Main curve — glow + solid
+  const traceCurve = () => {
+    ctx.beginPath();
+    ctx.moveTo(ptsX[0], ptsY[0]);
+    for (let i = 1; i < len; i++) ctx.lineTo(ptsX[i], ptsY[i]);
+  };
+  traceCurve(); ctx.strokeStyle = "#33aaff"; ctx.lineWidth = 2.2; ctx.globalAlpha = 0.3; ctx.stroke(); ctx.globalAlpha = 1;
+  traceCurve(); ctx.strokeStyle = "#55ccff"; ctx.lineWidth = 1.3; ctx.stroke();
+
+  // M/S: Side curve overlay
+  if (msMode && compensatedS) {
+    const sLen = compensatedS.length;
+    const sX = new Float32Array(sLen), sY = new Float32Array(sLen);
+    for (let i = 0; i < sLen; i++) {
+      sX[i] = (i / (sLen - 1)) * W;
+      sY[i] = Math.max(0, Math.min(H, dbToY(compensatedS[i].db)));
+    }
+    // Side fill
+    ctx.beginPath();
+    ctx.moveTo(sX[0], sY[0]);
+    for (let i = 1; i < sLen; i++) ctx.lineTo(sX[i], sY[i]);
+    ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath();
+    ctx.fillStyle = "rgba(255,136,51,0.1)"; ctx.fill();
+    // Side curve
+    const traceS = () => { ctx.beginPath(); ctx.moveTo(sX[0], sY[0]); for (let i = 1; i < sLen; i++) ctx.lineTo(sX[i], sY[i]); };
+    traceS(); ctx.strokeStyle = "#ff8833"; ctx.lineWidth = 2; ctx.globalAlpha = 0.3; ctx.stroke(); ctx.globalAlpha = 1;
+    traceS(); ctx.strokeStyle = "#ffaa55"; ctx.lineWidth = 1.2; ctx.stroke();
+    // Legend
+    ctx.font = `8px '${THEME.mono}', monospace`; ctx.textAlign = "left";
+    ctx.fillStyle = "#55ccff"; ctx.fillText("MID", 6, 14);
+    ctx.fillStyle = "#ffaa55"; ctx.fillText("SIDE", 36, 14);
+  }
+
+  // Reference spectrum overlay — gold dashed
+  if (compensatedRef) {
+    const rLen = compensatedRef.length;
+    const rX = new Float32Array(rLen), rY = new Float32Array(rLen);
+    for (let i = 0; i < rLen; i++) {
+      rX[i] = (i / (rLen - 1)) * W;
+      rY[i] = Math.max(0, Math.min(H, dbToY(compensatedRef[i].db)));
+    }
+    const traceRef = () => { ctx.beginPath(); ctx.moveTo(rX[0], rY[0]); for (let i = 1; i < rLen; i++) ctx.lineTo(rX[i], rY[i]); };
+    // Fill
+    traceRef(); ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath();
+    ctx.fillStyle = "rgba(255,200,68,0.07)"; ctx.fill();
+    // Glow
+    traceRef(); ctx.strokeStyle = "#ffc844"; ctx.lineWidth = 2; ctx.globalAlpha = 0.25; ctx.stroke(); ctx.globalAlpha = 1;
+    // Dashed
+    ctx.setLineDash([5, 3]);
+    traceRef(); ctx.strokeStyle = "#ffc844"; ctx.lineWidth = 1.2; ctx.globalAlpha = 0.8; ctx.stroke(); ctx.globalAlpha = 1;
+    ctx.setLineDash([]);
+    // Label
+    ctx.font = `8px '${THEME.mono}', monospace`; ctx.textAlign = "end";
+    ctx.fillStyle = "rgba(255,200,68,0.9)"; ctx.fillText("REF", W - 6, 14);
+  }
+
+  // Genre target curve with tolerance band
+  if (genre && GENRE_CURVES[genre]) {
+    const curve = GENRE_CURVES[genre];
+    const around1k = compensated.filter(p => p.freq > 800 && p.freq < 1200);
+    const anchor = around1k.length > 0
+      ? around1k.reduce((s, p) => s + p.db, 0) / around1k.length
+      : (dataMax + dataMin) / 2;
+
+    // Tolerance band fill
+    ctx.beginPath();
+    for (let i = 0; i < len; i++) {
+      const x = (i / (len - 1)) * W;
+      const { db: targetRel, range: tol } = interpolateTargetCurve(curve.points, compensated[i].freq);
+      const yU = Math.max(0, Math.min(H, dbToY(targetRel + anchor + tol)));
+      if (i === 0) ctx.moveTo(x, yU); else ctx.lineTo(x, yU);
+    }
+    for (let i = len - 1; i >= 0; i--) {
+      const x = (i / (len - 1)) * W;
+      const { db: targetRel, range: tol } = interpolateTargetCurve(curve.points, compensated[i].freq);
+      const yL = Math.max(0, Math.min(H, dbToY(targetRel + anchor - tol)));
+      ctx.lineTo(x, yL);
+    }
+    ctx.closePath();
+    ctx.fillStyle = genreColor + "1e"; ctx.fill();
+
+    // Upper/lower dashed
+    ctx.setLineDash([3, 3]);
+    ctx.strokeStyle = genreColor; ctx.lineWidth = 0.5; ctx.globalAlpha = 0.3;
+    for (const sign of [1, -1]) {
+      ctx.beginPath();
+      for (let i = 0; i < len; i++) {
+        const x = (i / (len - 1)) * W;
+        const { db: targetRel, range: tol } = interpolateTargetCurve(curve.points, compensated[i].freq);
+        const y = Math.max(0, Math.min(H, dbToY(targetRel + anchor + sign * tol)));
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1; ctx.setLineDash([]);
+
+    // Center curve
+    ctx.beginPath();
+    for (let i = 0; i < len; i++) {
+      const x = (i / (len - 1)) * W;
+      const { db: targetRel } = interpolateTargetCurve(curve.points, compensated[i].freq);
+      const y = Math.max(0, Math.min(H, dbToY(targetRel + anchor)));
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = genreColor; ctx.lineWidth = 1.8; ctx.globalAlpha = 0.7; ctx.stroke(); ctx.globalAlpha = 1;
+
+    // Dots on every 4th curve point
+    ctx.fillStyle = genreColor; ctx.globalAlpha = 0.5;
+    for (let i = 0; i < curve.points.length; i += 4) {
+      const [f, db] = curve.points[i];
+      const x = fToX(f), y = dbToY(db + anchor);
+      if (x >= 0 && x <= W && y >= 0 && y <= H) {
+        ctx.beginPath(); ctx.arc(x, y, 2, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // Freq labels
+  const freqLabels = [20, 30, 50, 80, 100, 150, 200, 300, 500, 800, 1000, 1500, 2000, 3000, 5000, 8000, 10000, 15000, 20000].filter(f => f >= fMin && f <= fMax);
+  ctx.font = `7px '${THEME.mono}', monospace`; ctx.textAlign = "center";
+  for (const f of freqLabels) {
+    const x = fToX(f);
+    const isMain = [100, 1000, 10000].includes(f);
+    ctx.fillStyle = isMain ? "#3a3a55" : "#222238";
+    ctx.font = `${isMain ? 8 : 7}px '${THEME.mono}', monospace`;
+    ctx.fillText(f >= 1000 ? `${f / 1000}k` : `${f}`, x, H - 3);
+  }
+}
+
+export function SpectrumDisplay({ points, pointsS, slope, genre, refPoints }) {
+  const [msMode, setMsMode] = useState(false);
+  const canvasRef = useRef(null);
+
+  const redraw = useCallback(() => {
+    drawSpectrum(canvasRef.current, points, pointsS, slope, genre, refPoints, msMode);
+  }, [points, pointsS, slope, genre, refPoints, msMode]);
+
+  useEffect(() => { redraw(); }, [redraw]);
+
+  // Redraw on container resize
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ro = new ResizeObserver(() => { requestAnimationFrame(redraw); });
+    ro.observe(canvas);
+    return () => ro.disconnect();
+  }, [redraw]);
+
+  if (!points?.length) return null;
+
+  const genreColor = genre ? (GENRE_COLORS[genre] || "#ffcc44") : "#ffcc44";
 
   return (
     <div style={{ background: "#080812", borderRadius: 7, padding: "8px 8px 4px", marginBottom: 14 }}>
@@ -103,136 +288,11 @@ export function SpectrumDisplay({ points, pointsS, slope, genre, refPoints }) {
             }}>M/S</button>
           )}
           <span style={{ fontSize: 7, color: THEME.dim, fontFamily: THEME.mono }}>
-            1/6 oct · slope {slope}dB/oct · {dbMin}→{dbMax}dB
+            1/6 oct · slope {slope}dB/oct
           </span>
         </div>
       </div>
-      <svg viewBox={`0 0 ${W + 30} ${H + 18}`} width="100%" style={{ display: "block" }}>
-        <g>
-          {/* dB grid — higher contrast */}
-          {gridLines.map(db => {
-            const y = dbToY(db);
-            const isMajor = db % 12 === 0;
-            return (
-              <g key={db}>
-                <line x1="0" y1={y} x2={W} y2={y} stroke={isMajor ? "#222240" : "#141428"} strokeWidth={isMajor ? "1" : ".5"} />
-                <text x={W + 3} y={y + 3} fill={isMajor ? "#4a4a65" : "#2a2a44"} fontSize="7" fontFamily={THEME.mono}>{db}</text>
-              </g>
-            );
-          })}
-          {/* Freq grid — higher contrast */}
-          {freqGrid.map(f => {
-            const x = fToX(f);
-            const isMajor = [100, 1000, 10000].includes(f);
-            return <line key={f} x1={x} y1={0} x2={x} y2={H} stroke={isMajor ? "#1a1a30" : "#111125"} strokeWidth={isMajor ? ".6" : ".4"} />;
-          })}
-          {/* Band-colored fills */}
-          {bandFills.map((bf, i) => (
-            <path key={i} d={bf.d} fill={bf.color} opacity=".12" />
-          ))}
-          {/* Main curve — thicker, with glow */}
-          <path d={pathD} fill="none" stroke="#33aaff" strokeWidth="2.2" opacity=".3" />
-          <path d={pathD} fill="none" stroke="#55ccff" strokeWidth="1.3" />
-          {/* Fill under curve */}
-          <path d={pathD + ` L${W},${H} L0,${H} Z`} fill="url(#specGrad)" opacity=".25" />
-          {/* M/S: Side curve overlay */}
-          {msMode && compensatedS && (() => {
-            const pathS = compensatedS.map((p, i) => {
-              const x = (i / (compensatedS.length - 1)) * W;
-              const y = Math.max(0, Math.min(H, dbToY(p.db)));
-              return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
-            }).join(" ");
-            return (
-              <g>
-                <path d={pathS + ` L${W},${H} L0,${H} Z`} fill="#ff8833" opacity=".1" />
-                <path d={pathS} fill="none" stroke="#ff8833" strokeWidth="2" opacity=".3" />
-                <path d={pathS} fill="none" stroke="#ffaa55" strokeWidth="1.2" />
-              </g>
-            );
-          })()}
-          {/* M/S legend */}
-          {msMode && (
-            <g>
-              <text x="6" y="14" fill="#55ccff" fontSize="8" fontFamily={THEME.mono}>MID</text>
-              <text x="36" y="14" fill="#ffaa55" fontSize="8" fontFamily={THEME.mono}>SIDE</text>
-            </g>
-          )}
-          {/* Reference spectrum overlay — LUFS-normalized, gold dashed */}
-          {compensatedRef && (() => {
-            const refPath = compensatedRef.map((p, i) => {
-              const x = (i / (compensatedRef.length - 1)) * W;
-              const y = Math.max(0, Math.min(H, dbToY(p.db)));
-              return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
-            }).join(" ");
-            return (
-              <g>
-                <path d={refPath + ` L${W},${H} L0,${H} Z`} fill="#ffc844" opacity=".07" />
-                <path d={refPath} fill="none" stroke="#ffc844" strokeWidth="2" opacity=".25" />
-                <path d={refPath} fill="none" stroke="#ffc844" strokeWidth="1.2" strokeDasharray="5,3" opacity=".8" />
-                <text x={W - 6} y="14" fill="#ffc844" fontSize="8" fontFamily={THEME.mono} textAnchor="end" opacity=".9">REF</text>
-              </g>
-            );
-          })()}
-          {/* Genre target curve with per-point tolerance band */}
-          {genre && GENRE_CURVES[genre] && (() => {
-            const curve = GENRE_CURVES[genre];
-
-            // Anchor: align target curve to the analyzed spectrum at 1kHz
-            const around1k = compensated.filter(p => p.freq > 800 && p.freq < 1200);
-            const anchor = around1k.length > 0
-              ? around1k.reduce((s, p) => s + p.db, 0) / around1k.length
-              : (dataMax + dataMin) / 2;
-
-            // Build center, upper, lower paths using per-point tolerance
-            const centerPts = [], upperPts = [], lowerPts = [];
-            for (let i = 0; i < compensated.length; i++) {
-              const x = (i / (compensated.length - 1)) * W;
-              const { db: targetRel, range: tol } = interpolateTargetCurve(curve.points, compensated[i].freq);
-              const targetDb = targetRel + anchor;
-
-              const yC = Math.max(0, Math.min(H, dbToY(targetDb)));
-              const yU = Math.max(0, Math.min(H, dbToY(targetDb + tol)));
-              const yL = Math.max(0, Math.min(H, dbToY(targetDb - tol)));
-              centerPts.push(`${x.toFixed(1)},${yC.toFixed(1)}`);
-              upperPts.push(`${x.toFixed(1)},${yU.toFixed(1)}`);
-              lowerPts.push(`${x.toFixed(1)},${yL.toFixed(1)}`);
-            }
-
-            const centerPath = "M" + centerPts.join(" L");
-            const upperPath = "M" + upperPts.join(" L");
-            const lowerPath = "M" + lowerPts.join(" L");
-            const bandPath = `M${upperPts.join(" L")} L${[...lowerPts].reverse().join(" L")} Z`;
-
-            return (
-              <g>
-                <path d={bandPath} fill={genreColor} opacity=".12" />
-                <path d={upperPath} fill="none" stroke={genreColor} strokeWidth=".5" opacity=".3" strokeDasharray="3,3" />
-                <path d={lowerPath} fill="none" stroke={genreColor} strokeWidth=".5" opacity=".3" strokeDasharray="3,3" />
-                <path d={centerPath} fill="none" stroke={genreColor} strokeWidth="1.8" opacity=".7" />
-                {curve.points.filter((_, i) => i % 4 === 0).map(([f, db], i) => {
-                  const x = fToX(f);
-                  const y = dbToY(db + anchor);
-                  if (x < 0 || x > W || y < 0 || y > H) return null;
-                  return <circle key={i} cx={x} cy={y} r="2" fill={genreColor} opacity=".5" />;
-                })}
-              </g>
-            );
-          })()}
-          {/* Freq labels */}
-          {freqLabels.map(f => {
-            const x = fToX(f);
-            const label = f >= 1000 ? `${f/1000}k` : f;
-            const isMain = [100, 1000, 10000].includes(f);
-            return <text key={f} x={x} y={H + 12} fill={isMain ? "#3a3a55" : "#222238"} fontSize={isMain ? "8" : "7"} fontFamily={THEME.mono} textAnchor="middle">{label}</text>;
-          })}
-        </g>
-        <defs>
-          <linearGradient id="specGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#33aaff" stopOpacity=".4" />
-            <stop offset="100%" stopColor="#33aaff" stopOpacity=".02" />
-          </linearGradient>
-        </defs>
-      </svg>
+      <canvas ref={canvasRef} style={{ display: "block", width: "100%", height: 220, borderRadius: 3 }} />
     </div>
   );
 }
