@@ -689,41 +689,6 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
           ))}
         </div>
 
-        {/* Band toggles (waveform display) */}
-        <div style={{ marginLeft: "auto", display: "flex", gap: 3 }}>
-          {BANDS_3.map((band, i) => (
-            <button key={band.name} onClick={() => {
-              setPrefs(p => {
-                const next = [...p.bandToggles];
-                next[i] = !next[i];
-                if (!next.some(Boolean)) return p;
-                return { ...p, bandToggles: next };
-              });
-            }} style={{
-              padding: "2px 8px", fontSize: 8, fontFamily: THEME.mono,
-              background: toggles[i] ? band.color + "22" : THEME.card,
-              color: toggles[i] ? band.color : THEME.dim,
-              border: `1px solid ${toggles[i] ? band.color + "44" : THEME.border}`,
-              borderRadius: 3, cursor: "pointer",
-            }}>{band.name}</button>
-          ))}
-          <button onClick={() => setPrefs(p => ({ ...p, specMs: !p.specMs }))} style={{
-            padding: "2px 8px", fontSize: 7, fontFamily: THEME.mono,
-            background: prefs.specMs ? "#ff885518" : THEME.card,
-            color: prefs.specMs ? "#ff9966" : THEME.dim,
-            border: `1px solid ${prefs.specMs ? "#ff885544" : THEME.border}`,
-            borderRadius: 3, cursor: "pointer",
-          }}>M/S</button>
-          <button onClick={() => {
-            setPrefs(p => ({ ...p, waveMode: p.waveMode === "spectral" ? "uniform" : "spectral" }));
-          }} style={{
-            padding: "2px 8px", fontSize: 7, fontFamily: THEME.mono,
-            background: isSpectral ? THEME.accent + "18" : THEME.card,
-            color: isSpectral ? "#bb99ff" : THEME.dim,
-            border: `1px solid ${isSpectral ? THEME.accent + "33" : THEME.border}`,
-            borderRadius: 3, cursor: "pointer",
-          }}>{isSpectral ? "SPECTRAL" : "UNIFORM"}</button>
-        </div>
       </div>
 
       {/* Live Spectrum + Phase Meter + LUFS Meter (PROJECT.md layout) */}
@@ -854,9 +819,40 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
               scrollPctRef.current = v; setScrollPct(v);
             }} style={{ flex: 1, height: 3, accentColor: THEME.accent, marginLeft: 4 }} />
           )}
-          <span style={{ marginLeft: "auto", fontSize: 6, color: THEME.dim, fontFamily: THEME.mono, opacity: 0.5 }}>
-            scroll to zoom · drag to scrub
-          </span>
+          <div style={{ marginLeft: "auto", display: "flex", gap: 3, flexWrap: "wrap" }}>
+            {BANDS_3.map((band, i) => (
+              <button key={band.name} onClick={() => {
+                setPrefs(p => {
+                  const next = [...p.bandToggles];
+                  next[i] = !next[i];
+                  if (!next.some(Boolean)) return p;
+                  return { ...p, bandToggles: next };
+                });
+              }} style={{
+                padding: "2px 8px", fontSize: 8, fontFamily: THEME.mono,
+                background: toggles[i] ? band.color + "22" : THEME.card,
+                color: toggles[i] ? band.color : THEME.dim,
+                border: `1px solid ${toggles[i] ? band.color + "44" : THEME.border}`,
+                borderRadius: 3, cursor: "pointer",
+              }}>{band.name}</button>
+            ))}
+            <button onClick={() => setPrefs(p => ({ ...p, specMs: !p.specMs }))} style={{
+              padding: "2px 8px", fontSize: 7, fontFamily: THEME.mono,
+              background: prefs.specMs ? "#ff885518" : THEME.card,
+              color: prefs.specMs ? "#ff9966" : THEME.dim,
+              border: `1px solid ${prefs.specMs ? "#ff885544" : THEME.border}`,
+              borderRadius: 3, cursor: "pointer",
+            }}>M/S</button>
+            <button onClick={() => {
+              setPrefs(p => ({ ...p, waveMode: p.waveMode === "spectral" ? "uniform" : "spectral" }));
+            }} style={{
+              padding: "2px 8px", fontSize: 7, fontFamily: THEME.mono,
+              background: isSpectral ? THEME.accent + "18" : THEME.card,
+              color: isSpectral ? "#bb99ff" : THEME.dim,
+              border: `1px solid ${isSpectral ? THEME.accent + "33" : THEME.border}`,
+              borderRadius: 3, cursor: "pointer",
+            }}>{isSpectral ? "SPECTRAL" : "UNIFORM"}</button>
+          </div>
         </div>
         <div style={{ display: "flex", padding: "4px 0 0" }}>
           {/* dB Peak Meter — L/R bars */}
