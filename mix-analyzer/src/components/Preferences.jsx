@@ -44,7 +44,7 @@ export function Preferences({ prefs, setPrefs, onClose }) {
         <PrefSlider label="LUFS Target" k="lufsTarget" min={-16} max={-4} step={0.5} unit=" LUFS" prefs={prefs} update={update} />
         <PrefSlider label="True Peak Ceiling" k="truePeakCeiling" min={-3} max={0} step={0.1} unit=" dBTP" prefs={prefs} update={update} />
         <PrefSlider label="Mono Crossover" k="monoCrossover" min={60} max={200} step={10} unit=" Hz" prefs={prefs} update={update} />
-        <PrefSlider label="Spectrum Slope" k="specSlope" min={0} max={4.5} step={1.5} unit=" dB/oct" prefs={prefs} update={update} />
+        <PrefSlider label="Spectrum Slope" k="specSlope" min={0} max={6} step={0.1} unit=" dB/oct" prefs={prefs} update={update} />
 
         <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
           {[["showVectorscope", "Vectorscope"], ["showBandWidth", "Stereo Bands"]].map(([k, n]) => (
@@ -52,6 +52,27 @@ export function Preferences({ prefs, setPrefs, onClose }) {
               <input type="checkbox" checked={prefs[k]} onChange={e => update(k, e.target.checked)} style={{ accentColor: THEME.accent }} />{n}
             </label>
           ))}
+        </div>
+
+        {/* Visual */}
+        <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${THEME.border}` }}>
+          <div style={{ fontSize: 8, color: THEME.sub, fontFamily: THEME.mono, marginBottom: 4, letterSpacing: 1 }}>VISUAL</div>
+          <div style={{ fontSize: 8, color: THEME.dim, fontFamily: THEME.mono, marginBottom: 3 }}>Vectorscope Style</div>
+          <div style={{ display: "flex", gap: 4 }}>
+            {[["dots", "Dots"], ["pixels", "Pixels"]].map(([val, label]) => {
+              const active = (prefs.vectorscopeStyle ?? "dots") === val;
+              return (
+                <button key={val} onClick={() => update("vectorscopeStyle", val)} style={{
+                  flex: 1, padding: "5px 6px",
+                  background: active ? THEME.accent : THEME.card,
+                  color: active ? THEME.bg : THEME.sub,
+                  border: `1px solid ${active ? THEME.accent : THEME.border}`,
+                  borderRadius: 4, fontSize: 8, fontFamily: THEME.mono, fontWeight: 700,
+                  cursor: "pointer", letterSpacing: 0.5,
+                }}>{label}</button>
+              );
+            })}
+          </div>
         </div>
 
         {/* Feedback engine */}

@@ -132,11 +132,28 @@ export function drawLiveSpec(canvas, analyser, slope, mode, filterBank, msMode, 
 
   // ── Spectrograph: scrolling spectrogram (physical pixels) ──
   if (isSpectrograph) {
-    // Reset buffer if canvas was resized
+    // Resize: resample existing buffer into new dimensions (preserve scroll history)
     if (!_heatmapBuf || _sgW !== PW || _sgH !== PH) {
-      _heatmapBuf = new ImageData(PW, PH);
+      const newBuf = new ImageData(PW, PH);
+      const nd = newBuf.data;
+      for (let i = 3; i < nd.length; i += 4) nd[i] = 255;
+      if (_heatmapBuf && _sgW > 0 && _sgH > 0) {
+        const od = _heatmapBuf.data;
+        const sx = _sgW / PW, sy = _sgH / PH;
+        for (let y = 0; y < PH; y++) {
+          const oy = Math.min(_sgH - 1, (y * sy) | 0);
+          const oRow = oy * _sgW;
+          const nRow = y * PW;
+          for (let x = 0; x < PW; x++) {
+            const ox = Math.min(_sgW - 1, (x * sx) | 0);
+            const oOff = (oRow + ox) * 4;
+            const nOff = (nRow + x) * 4;
+            nd[nOff] = od[oOff]; nd[nOff+1] = od[oOff+1]; nd[nOff+2] = od[oOff+2];
+          }
+        }
+      }
+      _heatmapBuf = newBuf;
       _sgW = PW; _sgH = PH;
-      for (let i = 3; i < _heatmapBuf.data.length; i += 4) _heatmapBuf.data[i] = 255;
     }
     const imgData = _heatmapBuf;
     const scrollPx = Math.max(1, Math.round(dpr)); // 1 logical px per frame
@@ -628,8 +645,10 @@ export function drawLufsMeter(canvas, analyser, scrubDb = null, prefs = null) {
     ctx.fillStyle = mGrad;
     ctx.fillRect(scaleW2, H - mH, barsW2, mH);
     ctx.font = "8px 'JetBrains Mono', monospace"; ctx.textAlign = "center";
-    ctx.fillStyle = mColor;
+    ctx.shadowColor = "rgba(0,0,0,0.85)"; ctx.shadowBlur = 3;
+    ctx.fillStyle = "#ffffff";
     ctx.fillText(momentaryDb > -60 ? momentaryDb.toFixed(1) : "---", scaleW2 + barsW2 / 2, 10);
+    ctx.shadowBlur = 0;
     ctx.font = "6px 'JetBrains Mono', monospace";
     ctx.fillStyle = "#4a4a66"; ctx.fillText("SCRUB", scaleW2 + barsW2 / 2, H - 2);
     return;
@@ -691,13 +710,14 @@ export function drawLufsMeter(canvas, analyser, scrubDb = null, prefs = null) {
     ctx.beginPath(); ctx.moveTo(barLeft - 2, peakY); ctx.lineTo(stBarLeft + stBarW + 2, peakY); ctx.stroke();
   }
 
-  // Value readouts above each bar
+  // Value readouts above each bar — constant white with shadow for legibility over any bar color
+  ctx.shadowColor = "rgba(0,0,0,0.85)"; ctx.shadowBlur = 3;
   ctx.font = "8px 'JetBrains Mono', monospace"; ctx.textAlign = "center";
-  ctx.fillStyle = mColor;
+  ctx.fillStyle = "#ffffff";
   ctx.fillText(momentaryDb > -60 ? momentaryDb.toFixed(1) : "---", barLeft + barW / 2, 10);
   ctx.font = "7px 'JetBrains Mono', monospace";
-  ctx.fillStyle = "#8866ff";
   ctx.fillText(shortTermDb > -60 ? shortTermDb.toFixed(1) : "---", stBarLeft + stBarW / 2, 10);
+  ctx.shadowBlur = 0;
 
   // Column labels at bottom
   ctx.font = "6px 'JetBrains Mono', monospace"; ctx.textAlign = "center";
@@ -807,7 +827,7 @@ export function drawDBMeter(canvas, lAnalyser, rAnalyser) {
    Phase 3: Live Vectorscope (Canvas Lissajous)
    ════════════════════════════════════════════════════ */
 
-export function drawVectorscope(canvas, filterBank, scrubVsData = null) {
+export function drawVectorscope(canvas, filterBank, scrubVsData = null, style = "dots") {
   if (!canvas) return;
   const setup = setupCanvas(canvas);
   if (!setup) return;
@@ -850,20 +870,52 @@ export function drawVectorscope(canvas, filterBank, scrubVsData = null) {
   ctx.textAlign = "left";
   ctx.fillText("L", 2, cy - 2);
 
-  // Scrub mode: draw wideband monochrome from buffer slice, skip live analyser
+  // Scrub mode: draw multiband RGB dots from buffer slice + pre-filtered bands,
+  // matching the live playback render path (scrubVsData.bandSlices = [lL,lM,lH,rL,rM,rH])
   if (scrubVsData) {
-    const { lSlice, rSlice } = scrubVsData;
-    ctx.beginPath();
-    for (let i = 0; i < lSlice.length; i++) {
-      const m = (lSlice[i] + rSlice[i]) * 0.7071;
-      const s = (rSlice[i] - lSlice[i]) * 0.7071;
-      const px = cx + s * radius;
-      const py = cy - m * radius;
-      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    const { lSlice, rSlice, bandSlices } = scrubVsData;
+    if (bandSlices && bandSlices.length >= 6) {
+      const n = lSlice.length;
+      const bandRGB = [[255, 85, 68], [68, 204, 102], [68, 136, 255]];
+      ctx.globalCompositeOperation = "lighter";
+      const dotR = Math.max(0.9, Math.min(W, H) * 0.006);
+      for (let i = 0; i < n; i++) {
+        const m = (lSlice[i] + rSlice[i]) * 0.7071;
+        const s = (rSlice[i] - lSlice[i]) * 0.7071;
+        const px = cx + s * radius;
+        const py = cy - m * radius;
+        if (px < 0 || px > W || py < 0 || py > H) continue;
+        const e = [0, 1, 2].map(b => {
+          const lv = bandSlices[b][i], rv = bandSlices[b + 3][i];
+          return lv * lv + rv * rv;
+        });
+        const eSum = e[0] + e[1] + e[2] + 1e-12;
+        const [rw, gw, bw] = e.map(v => v / eSum);
+        const r = Math.round(rw * bandRGB[0][0] + gw * bandRGB[1][0] + bw * bandRGB[2][0]);
+        const g = Math.round(rw * bandRGB[0][1] + gw * bandRGB[1][1] + bw * bandRGB[2][1]);
+        const b = Math.round(rw * bandRGB[0][2] + gw * bandRGB[1][2] + bw * bandRGB[2][2]);
+        if (style === "pixels") {
+          ctx.fillStyle = `rgba(${r},${g},${b},0.5)`;
+          ctx.fillRect(px | 0, py | 0, 1, 1);
+        } else {
+          ctx.fillStyle = `rgba(${r},${g},${b},0.22)`;
+          ctx.beginPath(); ctx.arc(px, py, dotR, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+      ctx.globalCompositeOperation = "source-over";
+    } else {
+      ctx.beginPath();
+      for (let i = 0; i < lSlice.length; i++) {
+        const m = (lSlice[i] + rSlice[i]) * 0.7071;
+        const s = (rSlice[i] - lSlice[i]) * 0.7071;
+        const px = cx + s * radius;
+        const py = cy - m * radius;
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.strokeStyle = "rgba(51,170,255,0.25)";
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
     }
-    ctx.strokeStyle = "rgba(51,170,255,0.25)";
-    ctx.lineWidth = 0.8;
-    ctx.stroke();
     return;
   }
 
@@ -886,6 +938,8 @@ export function drawVectorscope(canvas, filterBank, scrubVsData = null) {
     // Use tail of wideband buffer to align temporal window with band buffers (1:1 sample mapping)
     const wbOffset = bufSize - bandBufSize;
     const bandRGB = [[255, 85, 68], [68, 204, 102], [68, 136, 255]];
+    ctx.globalCompositeOperation = "lighter";
+    const dotR = Math.max(0.9, Math.min(W, H) * 0.006);
     for (let i = 0; i < bandBufSize; i++) {
       const wi = wbOffset + i;
       const m = (lData[wi] + rData[wi]) * 0.7071;
@@ -902,9 +956,15 @@ export function drawVectorscope(canvas, filterBank, scrubVsData = null) {
       const r = Math.round(rw * bandRGB[0][0] + gw * bandRGB[1][0] + bw * bandRGB[2][0]);
       const g = Math.round(rw * bandRGB[0][1] + gw * bandRGB[1][1] + bw * bandRGB[2][1]);
       const b = Math.round(rw * bandRGB[0][2] + gw * bandRGB[1][2] + bw * bandRGB[2][2]);
-      ctx.fillStyle = `rgba(${r},${g},${b},0.3)`;
-      ctx.fillRect(px - 1, py - 1, 2, 2);
+      if (style === "pixels") {
+        ctx.fillStyle = `rgba(${r},${g},${b},0.5)`;
+        ctx.fillRect(px | 0, py | 0, 1, 1);
+      } else {
+        ctx.fillStyle = `rgba(${r},${g},${b},0.45)`;
+        ctx.beginPath(); ctx.arc(px, py, dotR, 0, Math.PI * 2); ctx.fill();
+      }
     }
+    ctx.globalCompositeOperation = "source-over";
   } else {
     ctx.beginPath();
     for (let i = 0; i < bufSize; i++) {

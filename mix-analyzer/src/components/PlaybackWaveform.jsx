@@ -41,13 +41,18 @@ function pearson(a, b) {
   return den > 0 ? Math.max(-1, Math.min(1, num / den)) : 0;
 }
 
-function computeScrubPhase(lSlice, rSlice, sr) {
+function computeScrubBands(lSlice, rSlice, sr) {
   // Low: LP 200Hz; Mid: LP 4kHz then HP 200Hz; High: HP 4kHz
+  // Return order matches filterBank.analysers: [lowL, midL, highL, lowR, midR, highR]
   const lLow  = biquadLP(lSlice, 200, sr),  rLow  = biquadLP(rSlice, 200, sr);
   const lMidA = biquadLP(lSlice, 4000, sr), rMidA = biquadLP(rSlice, 4000, sr);
   const lMid  = biquadHP(lMidA,  200, sr),  rMid  = biquadHP(rMidA,  200, sr);
   const lHigh = biquadHP(lSlice, 4000, sr), rHigh = biquadHP(rSlice, 4000, sr);
-  return [pearson(lLow, rLow), pearson(lMid, rMid), pearson(lHigh, rHigh)];
+  return [lLow, lMid, lHigh, rLow, rMid, rHigh];
+}
+
+function scrubPhaseFromBands(bands) {
+  return [pearson(bands[0], bands[3]), pearson(bands[1], bands[4]), pearson(bands[2], bands[5])];
 }
 
 function computeScrubData(buffer, position) {
@@ -85,8 +90,9 @@ function computeScrubData(buffer, position) {
     sumSq += m * m;
   }
   const momentaryDb = 20 * Math.log10(Math.sqrt(sumSq / VS) + 1e-20);
-  const scrubPhaseCorr = computeScrubPhase(lSlice, rSlice, sr);
-  return { data, dataS, nyquist: sr/2, lSlice, rSlice, momentaryDb, scrubPhaseCorr };
+  const bandSlices = computeScrubBands(lSlice, rSlice, sr);
+  const scrubPhaseCorr = scrubPhaseFromBands(bandSlices);
+  return { data, dataS, nyquist: sr/2, lSlice, rSlice, bandSlices, momentaryDb, scrubPhaseCorr };
 }
 
 
@@ -355,7 +361,7 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
       // Phase 3: update meters
       drawPhaseMeter(phaseCanvasRef.current, filterBankRef.current);
       drawLufsMeter(lufsCanvasRef.current, specAnalyserRef.current, null, prefsRef.current);
-      drawVectorscope(vsCanvasRef.current, filterBankRef.current);
+      drawVectorscope(vsCanvasRef.current, filterBankRef.current, null, prefsRef.current.vectorscopeStyle);
       drawDBMeter(dbMeterCanvasRef.current, filterBankRef.current?.lAnalyser, filterBankRef.current?.rAnalyser);
       if (elapsed < buffer.duration) animRef.current = requestAnimationFrame(tick);
     };
@@ -401,7 +407,7 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
         lastScrubT = now;
         scrubDataRef.current = computeScrubData(buffer, newPos);
         drawLiveSpec(liveSpecCanvasRef.current, null, prefsRef.current.specSlope, prefsRef.current.liveSpecMode, null, prefsRef.current.specMs, scrubDataRef.current);
-        drawVectorscope(vsCanvasRef.current, null, scrubDataRef.current);
+        drawVectorscope(vsCanvasRef.current, null, scrubDataRef.current, prefsRef.current.vectorscopeStyle);
         drawLufsMeter(lufsCanvasRef.current, null, scrubDataRef.current?.momentaryDb ?? null, prefsRef.current);
         drawPhaseMeter(phaseCanvasRef.current, null, scrubDataRef.current?.scrubPhaseCorr ?? null);
       }
@@ -479,7 +485,7 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
         drawOverlay(overlayCanvasRef.current, positionRef.current, duration, zoomRef.current, scrollPctRef.current);
         drawLiveSpec(liveSpecCanvasRef.current, null, prefsRef.current.specSlope, prefsRef.current.liveSpecMode, null, prefsRef.current.specMs, scrubDataRef.current);
         drawPhaseMeter(phaseCanvasRef.current, null, scrubDataRef.current?.scrubPhaseCorr ?? null);
-        drawVectorscope(vsCanvasRef.current, null, scrubDataRef.current);
+        drawVectorscope(vsCanvasRef.current, null, scrubDataRef.current, prefsRef.current.vectorscopeStyle);
         drawLufsMeter(lufsCanvasRef.current, null, scrubDataRef.current?.momentaryDb ?? null, prefsRef.current);
       });
     };
@@ -496,7 +502,7 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
     const id = requestAnimationFrame(() => {
       drawLiveSpec(liveSpecCanvasRef.current, null, prefsRef.current.specSlope, prefsRef.current.liveSpecMode, null, prefsRef.current.specMs, scrubDataRef.current);
       drawPhaseMeter(phaseCanvasRef.current, null, scrubDataRef.current?.scrubPhaseCorr ?? null);
-      drawVectorscope(vsCanvasRef.current, null, scrubDataRef.current);
+      drawVectorscope(vsCanvasRef.current, null, scrubDataRef.current, prefsRef.current.vectorscopeStyle);
       drawLufsMeter(lufsCanvasRef.current, null, scrubDataRef.current?.momentaryDb ?? null, prefsRef.current);
       drawDBMeter(dbMeterCanvasRef.current, null, null);
     });
@@ -671,8 +677,26 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
                 border: `1px solid ${prefs.specMs ? "#ff885544" : THEME.border}`,
                 borderRadius: 2, cursor: "pointer",
               }}>M/S</button>
-              <span style={{ fontSize: 7, color: THEME.dim, fontFamily: THEME.mono, marginLeft: 4 }}>
-                slope {prefs.specSlope}dB/oct
+              <span style={{ display: "flex", alignItems: "center", gap: 3, marginLeft: 2 }}>
+                <span style={{ fontSize: 7, color: THEME.dim, fontFamily: THEME.mono }}>slope</span>
+                <input type="range" min={0} max={6} step={0.1}
+                  value={prefs.specSlope}
+                  onChange={e => setPrefs(p => ({ ...p, specSlope: +e.target.value }))}
+                  onDoubleClick={() => setPrefs(p => ({ ...p, specSlope: 3.0 }))}
+                  title="Double-click to reset to 3 dB/oct"
+                  style={{ width: 60, accentColor: THEME.accent, height: 4, cursor: "pointer" }} />
+                <input type="number" min={0} max={6} step={0.1}
+                  value={prefs.specSlope}
+                  onChange={e => {
+                    const v = e.target.value === '' ? 0 : +e.target.value;
+                    if (!Number.isNaN(v)) setPrefs(p => ({ ...p, specSlope: Math.max(0, Math.min(6, v)) }));
+                  }}
+                  style={{
+                    width: 34, fontSize: 7, fontFamily: THEME.mono, padding: "1px 3px",
+                    background: "#0b0b16", color: THEME.sub,
+                    border: `1px solid ${THEME.border}`, borderRadius: 2, outline: "none",
+                  }} />
+                <span style={{ fontSize: 7, color: THEME.dim, fontFamily: THEME.mono }}>dB/oct</span>
               </span>
             </div>
           </div>

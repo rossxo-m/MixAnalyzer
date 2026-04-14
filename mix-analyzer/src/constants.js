@@ -31,6 +31,7 @@ export const DEFAULT_PREFS = {
   monoPreview: false,   // sum L+R to mono
   feedbackTier: 1,      // 1 = offline template engine; 3 = Claude API (backend /feedback)
   apiKey: "",           // optional — sent as Bearer header, overrides backend env key
+  vectorscopeStyle: "dots", // "dots" | "pixels"
 };
 
 // Per-genre colors for target curve overlay

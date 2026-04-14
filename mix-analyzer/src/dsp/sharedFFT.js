@@ -46,7 +46,9 @@ export function computeSharedFFT(buffer) {
   const maxSpecFrames = Math.min(numHops, 48);
   const specStep = Math.max(1, Math.floor(numHops / maxSpecFrames));
 
-  // Spectral waveform: up to 600 frames (same as original)
+  // Spectral waveform COLOUR hops: reuse the FFT hop schedule for 3-band energies.
+  // Amplitude (mx/mn/rms) is computed in a separate raw-buffer pass AFTER the FFT
+  // loop so short tracks aren't capped by numHops → uniform visual bar widths.
   const maxWaveFrames = Math.min(numHops, 2400);
   const waveStep = Math.max(1, Math.floor(numHops / maxWaveFrames));
 
@@ -65,12 +67,14 @@ export function computeSharedFFT(buffer) {
   const avgMagS = new Float64Array(half);
   let specFrameCount = 0;
 
-  // Spectral waveform: per-frame 3-band proportions + time domain stats
+  // Spectral waveform: per-hop 3-band proportions (for colour). Amplitude stats
+  // are filled later in a separate pass at fixed 2400-chunk resolution.
   const band3Ranges = BANDS_3.map(b => ({
     lo: Math.max(1, Math.floor(b.min / freqRes)),
     hi: Math.min(half - 1, Math.ceil(b.max / freqRes)),
   }));
-  const spectralWaveform = [];
+  // hopColours[h] = { low, mid, high, t }  where t is the hop centre time in samples
+  const hopColours = [];
 
   // Stereo: per-band accumulator (same structure as original computeStereo)
   const stereoAccum = BANDS_7.map(() => ({ sLL: 0, sRR: 0, sLR: 0, sM: 0, sS: 0 }));
@@ -150,7 +154,7 @@ export function computeSharedFFT(buffer) {
       }
     }
 
-    // ── Spectral waveform frame ──
+    // ── Spectral waveform colour hop (band energies only) ──
     if (needsWave) {
       const bandEnergy = [0, 0, 0];
       let totalE = 0;
@@ -163,21 +167,52 @@ export function computeSharedFFT(buffer) {
         }
       }
       const total = totalE + 1e-20;
-      let rms = 0, mx = 0, mn = 0;
-      for (let i = 0; i < N; i++) {
-        const s = (L[off + i] + R[off + i]) * 0.5;
-        rms += s * s;
-        if (s > mx) mx = s;
-        if (s < mn) mn = s;
-      }
-      rms = Math.sqrt(rms / N);
-      spectralWaveform.push({
+      hopColours.push({
         low: bandEnergy[0] / total,
         mid: bandEnergy[1] / total,
         high: bandEnergy[2] / total,
-        rms, mx, mn,
+        t: off + N * 0.5, // hop centre in samples
       });
     }
+  }
+
+  // ── Spectral waveform amplitude pass ─────────────────────────────────────────
+  // Split the raw buffer into a fixed number of chunks regardless of duration so
+  // visual bar width stays uniform across short and long tracks. Each chunk's
+  // colour is the time-nearest FFT hop's band proportions.
+  const TARGET_WAVE_FRAMES = 2400;
+  const MIN_CHUNK_SAMPLES = 64;
+  const waveFrameCount = Math.max(1,
+    Math.min(TARGET_WAVE_FRAMES, Math.floor(len / MIN_CHUNK_SAMPLES)));
+  const chunkSize = len / waveFrameCount;
+
+  const spectralWaveform = new Array(waveFrameCount);
+  let hopIdx = 0;
+  const fallbackColour = { low: 1 / 3, mid: 1 / 3, high: 1 / 3 };
+
+  for (let f = 0; f < waveFrameCount; f++) {
+    const s0 = Math.floor(f * chunkSize);
+    const s1 = Math.min(len, Math.floor((f + 1) * chunkSize));
+    let mx = 0, mn = 0, sumSq = 0;
+    const n = s1 - s0;
+    for (let i = s0; i < s1; i++) {
+      const v = (L[i] + R[i]) * 0.5;
+      if (v > mx) mx = v;
+      if (v < mn) mn = v;
+      sumSq += v * v;
+    }
+    const rms = n > 0 ? Math.sqrt(sumSq / n) : 0;
+
+    // Advance hopIdx to the hop whose centre is closest to this chunk's centre.
+    // hopColours are sorted by t ascending (we pushed in hop order).
+    const tCentre = (s0 + s1) * 0.5;
+    while (hopIdx + 1 < hopColours.length &&
+           Math.abs(hopColours[hopIdx + 1].t - tCentre) <
+           Math.abs(hopColours[hopIdx].t - tCentre)) {
+      hopIdx++;
+    }
+    const c = hopColours[hopIdx] || fallbackColour;
+    spectralWaveform[f] = { low: c.low, mid: c.mid, high: c.high, rms, mx, mn };
   }
 
   // Normalise spectrum averages
