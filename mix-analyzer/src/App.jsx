@@ -117,6 +117,13 @@ export default function MixAnalyzer() {
   const [prefs, setPrefs] = useState(DEFAULT_PREFS);
   const [showPrefs, setShowPrefs] = useState(false);
   const [view, setView] = useState("analysis");
+  const ZOOM_STEPS = [1, 1.5, 2, 2.5];
+  const [uiZoom, setUiZoom] = useState(() => parseFloat(localStorage.getItem('uiZoom') || '1'));
+  const cycleZoom = () => setUiZoom(z => {
+    const next = ZOOM_STEPS[(ZOOM_STEPS.indexOf(z) + 1) % ZOOM_STEPS.length];
+    localStorage.setItem('uiZoom', next);
+    return next;
+  });
   const [refStem, setRefStem] = useState(null);
   const fileRef = useRef();
   const refFileRef = useRef();
@@ -207,7 +214,7 @@ export default function MixAnalyzer() {
   const T = THEME;
 
   return (
-    <div style={{ minHeight: "100vh", background: T.bg, color: T.text, fontFamily: T.sans }}>
+    <div style={{ minHeight: "100vh", background: T.bg, color: T.text, fontFamily: T.sans, zoom: uiZoom }}>
       <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
       {showPrefs && <Preferences prefs={prefs} setPrefs={setPrefs} onClose={() => setShowPrefs(false)} />}
 
@@ -222,7 +229,10 @@ export default function MixAnalyzer() {
             </div>
           </div>
         </div>
-        <button onClick={() => setShowPrefs(true)} style={{ background: T.card, color: T.sub, border: `1px solid ${T.border}`, borderRadius: 4, padding: "4px 9px", fontSize: 8, cursor: "pointer", fontFamily: T.mono }}>⚙</button>
+        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+          <button onClick={cycleZoom} style={{ background: T.card, color: T.sub, border: `1px solid ${T.border}`, borderRadius: 4, padding: "4px 9px", fontSize: 8, cursor: "pointer", fontFamily: T.mono }}>{uiZoom}×</button>
+          <button onClick={() => setShowPrefs(true)} style={{ background: T.card, color: T.sub, border: `1px solid ${T.border}`, borderRadius: 4, padding: "4px 9px", fontSize: 8, cursor: "pointer", fontFamily: T.mono }}>⚙</button>
+        </div>
       </div>
 
       {/* Drop zone */}

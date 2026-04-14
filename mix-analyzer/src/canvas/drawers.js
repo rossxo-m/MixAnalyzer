@@ -3,6 +3,8 @@
    No React, no DOM imports. Canvas + data in, nothing out.
    ════════════════════════════════════════════════════ */
 
+import { fft } from '../dsp/fft.js';
+
 // DPR-aware canvas setup: sets physical pixel dimensions from CSS layout, applies scale transform.
 // Returns { ctx, W, H, PW, PH, dpr } where W/H are logical CSS pixels for drawing.
 function setupCanvas(canvas) {
@@ -85,16 +87,33 @@ export function drawLiveSpec(canvas, analyser, slope, mode, filterBank, msMode, 
   let rawDb, rawFreq, rawDbS, nyquist;
 
   if (msMode && filterBank?.lAnalyser) {
+    // Correct M/S: compute Mid=(L+R)/2 and Side=(L-R)/2 in time domain,
+    // apply Hann window, FFT each independently, then take magnitudes.
+    // Using getFloatFrequencyData (magnitude only) discards phase and makes
+    // Mid look identical to the mono mix — this is the correct approach.
     nyquist = filterBank.lAnalyser.context.sampleRate / 2;
-    const lLen = filterBank.lAnalyser.frequencyBinCount;
-    const lFreq = new Float32Array(lLen), rFreq = new Float32Array(lLen);
-    filterBank.lAnalyser.getFloatFrequencyData(lFreq);
-    filterBank.rAnalyser.getFloatFrequencyData(rFreq);
-    const mData = new Float32Array(lLen), sData = new Float32Array(lLen);
-    for (let i = 0; i < lLen; i++) {
-      const lL = Math.pow(10, lFreq[i] / 20), rL = Math.pow(10, rFreq[i] / 20);
-      mData[i] = 20 * Math.log10((lL + rL) / 2 + 1e-10);
-      sData[i] = 20 * Math.log10(Math.abs(rL - lL) / 2 + 1e-10);
+    const N = filterBank.lAnalyser.fftSize;
+    const dataL = new Float32Array(N), dataR = new Float32Array(N);
+    filterBank.lAnalyser.getFloatTimeDomainData(dataL);
+    filterBank.rAnalyser.getFloatTimeDomainData(dataR);
+
+    const mRe = new Float64Array(N), mIm = new Float64Array(N);
+    const sRe = new Float64Array(N), sIm = new Float64Array(N);
+    for (let i = 0; i < N; i++) {
+      const w = 0.5 * (1 - Math.cos(2 * Math.PI * i / (N - 1)));
+      mRe[i] = (dataL[i] + dataR[i]) * 0.5 * w;
+      sRe[i] = (dataL[i] - dataR[i]) * 0.5 * w;
+    }
+    fft(mRe, mIm);
+    fft(sRe, sIm);
+
+    const half = N / 2;
+    const mData = new Float32Array(half), sData = new Float32Array(half);
+    for (let k = 0; k < half; k++) {
+      const mMag = Math.sqrt(mRe[k]*mRe[k] + mIm[k]*mIm[k]) / (N / 2);
+      const sMag = Math.sqrt(sRe[k]*sRe[k] + sIm[k]*sIm[k]) / (N / 2);
+      mData[k] = mMag > 1e-10 ? 20 * Math.log10(mMag) : -120;
+      sData[k] = sMag > 1e-10 ? 20 * Math.log10(sMag) : -120;
     }
     ({ rawDb, rawFreq } = _buildSpecPoints(mData, nyquist, slope, numPts, fMin, fMax, dbFloor, dbCeil));
     ({ rawDb: rawDbS } = _buildSpecPoints(sData, nyquist, slope, numPts, fMin, fMax, dbFloor, dbCeil));

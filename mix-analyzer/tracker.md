@@ -2,7 +2,7 @@
 
 Last updated: 2026-04-13  
 Branch: `feature/phase7-prep`  
-Phases 1–6.8 complete. Phase 7 in progress.
+Phases 1–6.9 complete. Phase 7 in progress.
 
 ---
 
@@ -99,6 +99,11 @@ Migration is incremental — no big-bang rewrites. Each task above moves one pie
 | W5 | Waveform: transient marker overlay | Peak-detected transients shown as tick marks (useful for EDM drops/builds). |
 
 ---
+
+## Recently Completed (Phase 6.9)
+
+- ✅ M/S live spectrum fix: time-domain Mid=(L+R)/2 and Side=(L-R)/2 before FFT — was incorrectly using magnitude spectra, discarding phase
+- ✅ UI zoom cycle button: 1×/1.5×/2×/2.5× cycle on header button, persisted in localStorage, applied via CSS `zoom` on root div
 
 ## Recently Completed (Phase 6.8)
 
