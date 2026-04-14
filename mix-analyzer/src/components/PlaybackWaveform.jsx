@@ -707,6 +707,13 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
               borderRadius: 3, cursor: "pointer",
             }}>{band.name}</button>
           ))}
+          <button onClick={() => setPrefs(p => ({ ...p, specMs: !p.specMs }))} style={{
+            padding: "2px 8px", fontSize: 7, fontFamily: THEME.mono,
+            background: prefs.specMs ? "#ff885518" : THEME.card,
+            color: prefs.specMs ? "#ff9966" : THEME.dim,
+            border: `1px solid ${prefs.specMs ? "#ff885544" : THEME.border}`,
+            borderRadius: 3, cursor: "pointer",
+          }}>M/S</button>
           <button onClick={() => {
             setPrefs(p => ({ ...p, waveMode: p.waveMode === "spectral" ? "uniform" : "spectral" }));
           }} style={{
@@ -740,13 +747,6 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
                   borderRadius: 2, cursor: "pointer",
                 }}>{m}</button>
               ))}
-              <button onClick={() => setPrefs(p => ({ ...p, specMs: !p.specMs }))} style={{
-                padding: "1px 6px", fontSize: 7, fontFamily: THEME.mono,
-                background: prefs.specMs ? "#ff885518" : "transparent",
-                color: prefs.specMs ? "#ff9966" : THEME.dim,
-                border: `1px solid ${prefs.specMs ? "#ff885544" : THEME.border}`,
-                borderRadius: 2, cursor: "pointer",
-              }}>M/S</button>
               <span style={{ display: "flex", alignItems: "center", gap: 3, marginLeft: 2 }}>
                 <span style={{ fontSize: 7, color: THEME.dim, fontFamily: THEME.mono }}>slope</span>
                 <input type="range" min={0} max={6} step={0.1}
