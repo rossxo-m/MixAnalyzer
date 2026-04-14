@@ -120,6 +120,14 @@ Reference track loading, LUFS-normalized spectrum overlay (gold dashed), band so
 - **`computeHighResFrames` per-channel peaks**: zoom ≥ 4× now scans both ch0+ch1 for `mx`/`mn`; RMS still from mid — consistent with sharedFFT per-channel fix, clip strip works at all zoom levels
 - **LUFS CLIP LED removed**: reverted; `drawLufsMeter` keeps only the target line enhancement
 
+### Phase A — UI Tokens + Primitives ✅ (outside-dev polish pass)
+Motivated by an outside-developer critique ("looks vibe coded"). The engine is strong; the surface read as AI-generated due to unscaffolded inline styles and 12 hand-rolled button variants.
+- **Design tokens** in `src/theme.js`: `space` (4/8 ladder), `radius` (xs/sm/md/lg/pill), `shadow` (sm/md/lg/inset), `z` (base/overlay/modal/toast), `motion` (fast/base/slow), `type` (xs/sm/base/md/lg/xl). Merged into the mutable `THEME` singleton so `applyTheme()` keeps them available across preset swaps.
+- **UI primitives** under `src/components/ui/`: `Button` (primary/secondary/tertiary/tab/icon/danger × sm/md/icon), `Panel`, `Toggle` (role=switch, animated), `Modal` (responsive `min(92vw, 340px)`, ESC + backdrop close), `Tabs` (built on Button.tab).
+- **Pseudo-class support** via `_inject.js` — one-shot `<style>` tag for hover/active/focus-visible/aria-pressed transitions. Keeps inline React styles palette-driven. `prefers-reduced-motion` respected.
+- **Migrations**: `App.jsx`, `Preferences.jsx`, `PlaybackWaveform.jsx` — zero hand-rolled `<button>` tags across all three (was 14). Inline `style={{` count across the three dropped 159 → 136.
+- **Canvas font bumps** (drawers.js): phase LOW/MID/HIGH 7px → 10px bold, correlation 7px → 9px, L/R 6px → 8px; waveform BPM+key bold 8px → bold 11px; LUFS momentary 8px → bold 12px, short-term 7px → bold 10px, ticks 7px → 9px, M/ST labels 6px → 8px.
+
 ### Phase 7 Prep (in progress)
 - Canvas draw extraction: `src/canvas/drawers.js` — `drawLiveSpec`, `drawWaveCanvas`, `drawOverlay`, `drawVectorscope`, `drawLufsMeter`, `drawPhaseMeter` extracted from `PlaybackWaveform.jsx` (1494 → 729 lines)
 - Full analyze() Web Worker: `src/workers/analyzeWorker.js` — entire DSP pipeline runs off main thread via `analyzeAsync()`. Uses `type: 'module'` with Vite-bundled imports. UI stays responsive during analysis.

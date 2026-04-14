@@ -4,6 +4,26 @@ const FONTS = {
   sans: "'Instrument Sans', -apple-system, sans-serif",
 };
 
+// Non-color design tokens. Palette-invariant — same across every theme preset.
+// THEME.space[3] → 8px, THEME.radius.md → 6px, THEME.type.base → 12, etc.
+const TOKENS = {
+  space: { 0: 0, 1: 2, 2: 4, 3: 8, 4: 12, 5: 16, 6: 24, 7: 32 },
+  radius: { xs: 2, sm: 4, md: 6, lg: 10, pill: 999 },
+  shadow: {
+    sm: "0 1px 2px rgba(0,0,0,0.25)",
+    md: "0 2px 8px rgba(0,0,0,0.35)",
+    lg: "0 6px 24px rgba(0,0,0,0.45)",
+    inset: "inset 0 1px 0 rgba(255,255,255,0.04)",
+  },
+  z: { base: 0, overlay: 10, modal: 100, toast: 1000 },
+  motion: {
+    fast: "120ms ease",
+    base: "180ms ease",
+    slow: "240ms cubic-bezier(.2,.6,.2,1)",
+  },
+  type: { xs: 10, sm: 11, base: 12, md: 14, lg: 16, xl: 20 },
+};
+
 // Theme presets. Shape mirrors the old THEME constant so every existing
 // `THEME.bg` / `THEME.accent` call site works unchanged.
 //
@@ -95,11 +115,11 @@ export const THEMES = {
 
 // Mutable singleton — every module that did `import { THEME } from './theme.js'`
 // sees the current palette because each render reads properties fresh.
-export const THEME = { ...THEMES.nebula, ...FONTS };
+export const THEME = { ...THEMES.nebula, ...FONTS, ...TOKENS };
 
 export function applyTheme(name) {
   const preset = THEMES[name] || THEMES.nebula;
-  Object.assign(THEME, preset, FONTS);
+  Object.assign(THEME, preset, FONTS, TOKENS);
 }
 
 // Helper: parse "#rrggbb" → [r, g, b] for additive-alpha rendering.
