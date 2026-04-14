@@ -11,6 +11,8 @@ import { MetricCard } from './components/MetricCard.jsx';
 import { FeedbackItem } from './components/FeedbackItem.jsx';
 import { BandBar } from './components/BandBar.jsx';
 import { Preferences } from './components/Preferences.jsx';
+import { Button } from './components/ui/Button.jsx';
+import { Tabs } from './components/ui/Tabs.jsx';
 import { useIsMobile } from './hooks/useIsMobile.js';
 
 function Vectorscope({ data, size = 190 }) {
@@ -288,7 +290,7 @@ export default function MixAnalyzer() {
               />
             </div>
           )}
-          <button onClick={() => setShowPrefs(true)} style={{ background: T.card, color: T.sub, border: `1px solid ${T.border}`, borderRadius: 4, padding: "4px 9px", fontSize: 8, cursor: "pointer", fontFamily: T.mono }}>⚙</button>
+          <Button variant="icon" onClick={() => setShowPrefs(true)} ariaLabel="Settings" title="Settings">⚙</Button>
         </div>
       </div>
       </div>
@@ -318,46 +320,53 @@ export default function MixAnalyzer() {
         <div style={{ padding: isMobile ? "0 8px 12px" : "0 18px 18px" }}>
           {/* Toolbar */}
           <div style={{ display: "flex", gap: 4, padding: "7px 0", flexWrap: "wrap", alignItems: "center" }}>
-            <button onClick={() => fileRef.current?.click()} style={{ background: T.card, color: T.accent, border: `1px solid ${T.border}`, borderRadius: 3, padding: "3px 7px", fontSize: 8, cursor: "pointer", fontFamily: T.mono }}>+ Add</button>
+            <Button onClick={() => fileRef.current?.click()} style={{ color: T.accent }}>+ Add</Button>
             <input ref={fileRef} type="file" multiple accept="audio/*,.wav,.mp3,.flac,.ogg,.aac,.m4a" onChange={e => { const f = Array.from(e.target.files); if (f.length) processFiles(f); }} style={{ display: "none" }} />
-            <button onClick={() => refFileRef.current?.click()} style={{ background: refStem ? withAlpha(T.warn, 0.09) : T.card, color: refStem ? T.warn : T.sub, border: `1px solid ${refStem ? withAlpha(T.warn, 0.25) : T.border}`, borderRadius: 3, padding: "3px 7px", fontSize: 8, cursor: "pointer", fontFamily: T.mono }}>+ REF</button>
+            <Button
+              onClick={() => refFileRef.current?.click()}
+              style={refStem
+                ? { background: withAlpha(T.warn, 0.12), color: T.warn, borderColor: withAlpha(T.warn, 0.4) }
+                : { color: T.sub }}
+            >+ REF</Button>
             <input ref={refFileRef} type="file" accept="audio/*,.wav,.mp3,.flac,.ogg,.aac,.m4a" onChange={e => { const f = e.target.files[0]; if (f) loadReference(f); e.target.value = ""; }} style={{ display: "none" }} />
             {refStem && (
               <div style={{ display: "flex", alignItems: "center", gap: 3, padding: "2px 6px", background: withAlpha(T.warn, 0.06), border: `1px solid ${withAlpha(T.warn, 0.19)}`, borderRadius: 3 }}>
                 <span style={{ fontSize: 7, color: T.warn, fontFamily: T.mono, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>REF: {refStem.name.replace(/\.[^.]+$/, "")}</span>
-                <button onClick={() => setRefStem(null)} style={{ background: "none", border: "none", color: withAlpha(T.warn, 0.5), cursor: "pointer", fontSize: 9, padding: 0, lineHeight: 1 }}>×</button>
+                <Button variant="tertiary" size="icon" ariaLabel="Remove reference track" onClick={() => setRefStem(null)} style={{ color: withAlpha(T.warn, 0.7), fontSize: 12, minWidth: 18, minHeight: 18, padding: "2px 4px" }}>×</Button>
               </div>
             )}
-            <div style={{ marginLeft: "auto", display: "flex", gap: 2 }}>
-              {["analysis", "stereo", "feedback"].map(v => (
-                <button key={v} onClick={() => setView(v)} style={{
-                  padding: "3px 7px", fontSize: 7, fontFamily: T.mono, textTransform: "uppercase", letterSpacing: 1,
-                  background: view === v ? withAlpha(T.accent, 0.09) : T.card, color: view === v ? T.accent : T.sub,
-                  border: `1px solid ${view === v ? withAlpha(T.accent, 0.2) : T.border}`, borderRadius: 3, cursor: "pointer",
-                }}>{v}</button>
-              ))}
+            <div style={{ marginLeft: "auto" }}>
+              <Tabs
+                items={[
+                  { value: "analysis", label: "Analysis" },
+                  { value: "stereo", label: "Stereo" },
+                  { value: "feedback", label: "Feedback" },
+                ]}
+                value={view}
+                onChange={setView}
+              />
             </div>
-            <button onClick={() => { setStems([]); setBuffers([]); setActiveTab(0); }} style={{
-              background: withAlpha(T.error, 0.07), color: T.error, border: `1px solid ${withAlpha(T.error, 0.16)}`, borderRadius: 3, padding: "3px 7px", fontSize: 8, cursor: "pointer", fontFamily: T.mono,
-            }}>Clear</button>
+            <Button variant="danger" onClick={() => { setStems([]); setBuffers([]); setActiveTab(0); }}>Clear</Button>
           </div>
 
           {/* Tabs */}
           <div style={{ display: "flex", gap: 2, marginBottom: 10, flexWrap: "wrap" }}>
             {stems.map((s, i) => (
-              <button key={i} onClick={() => setActiveTab(i)} style={{
-                background: activeTab === i ? withAlpha(T.accent, 0.09) : T.card, color: activeTab === i ? T.accent : T.sub,
-                border: `1px solid ${activeTab === i ? withAlpha(T.accent, 0.2) : T.border}`, borderRadius: 3,
-                padding: "3px 7px", fontSize: 8, cursor: "pointer", fontFamily: T.mono,
-                maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-              }}>{s.name.replace(/\.[^.]+$/, "")}</button>
+              <Button
+                key={i}
+                variant="tab"
+                pressed={activeTab === i}
+                onClick={() => setActiveTab(i)}
+                style={{ maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textTransform: "none", letterSpacing: 0.2 }}
+              >{s.name.replace(/\.[^.]+$/, "")}</Button>
             ))}
             {stems.length > 1 && (
-              <button onClick={() => setActiveTab(-1)} style={{
-                background: activeTab === -1 ? withAlpha(T.error, 0.07) : T.card, color: activeTab === -1 ? T.error : T.sub,
-                border: `1px solid ${activeTab === -1 ? withAlpha(T.error, 0.16) : T.border}`, borderRadius: 3,
-                padding: "3px 7px", fontSize: 8, cursor: "pointer", fontFamily: T.mono,
-              }}>⚡Mask</button>
+              <Button
+                onClick={() => setActiveTab(-1)}
+                style={activeTab === -1
+                  ? { background: withAlpha(T.error, 0.18), color: T.error, borderColor: withAlpha(T.error, 0.5), fontWeight: 600 }
+                  : { color: T.sub }}
+              >⚡ Mask</Button>
             )}
           </div>
 
