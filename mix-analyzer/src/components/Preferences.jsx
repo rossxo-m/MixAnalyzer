@@ -1,4 +1,4 @@
-import { THEME } from '../theme.js';
+import { THEME, THEMES, withAlpha } from '../theme.js';
 import { DEFAULT_PREFS } from '../constants.js';
 import { GENRE_TARGETS } from '../analysis/genres.js';
 
@@ -22,7 +22,7 @@ export function Preferences({ prefs, setPrefs, onClose }) {
   };
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "#000a", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
+    <div style={{ position: "fixed", inset: 0, background: withAlpha(THEME.bg, 0.72), zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", zoom: 0.75 }} onClick={onClose}>
       <div style={{ background: THEME.bg, border: `1px solid ${THEME.border}`, borderRadius: 10, padding: 18, width: 340, maxHeight: "80vh", overflow: "auto" }} onClick={e => e.stopPropagation()}>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
           <h2 style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>Settings</h2>
@@ -57,12 +57,55 @@ export function Preferences({ prefs, setPrefs, onClose }) {
         {/* Visual */}
         <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${THEME.border}` }}>
           <div style={{ fontSize: 8, color: THEME.sub, fontFamily: THEME.mono, marginBottom: 4, letterSpacing: 1 }}>VISUAL</div>
+
+          <div style={{ fontSize: 8, color: THEME.dim, fontFamily: THEME.mono, marginBottom: 3 }}>Color Theme</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 4, marginBottom: 8 }}>
+            {Object.entries(THEMES).map(([key, t]) => {
+              const active = (prefs.themePreset ?? "nebula") === key;
+              return (
+                <button key={key} onClick={() => update("themePreset", key)} style={{
+                  padding: "5px 4px",
+                  background: active ? THEME.accent : THEME.card,
+                  color: active ? THEME.bg : THEME.sub,
+                  border: `1px solid ${active ? THEME.accent : THEME.border}`,
+                  borderRadius: 4, fontSize: 8, fontFamily: THEME.mono, fontWeight: 700,
+                  cursor: "pointer", letterSpacing: 0.5, display: "flex",
+                  alignItems: "center", justifyContent: "center", gap: 4,
+                }}>
+                  <span style={{
+                    width: 7, height: 7, borderRadius: "50%",
+                    background: t.accent, flexShrink: 0,
+                    border: `1px solid ${t.border}`,
+                  }} />
+                  {t.name}
+                </button>
+              );
+            })}
+          </div>
+
           <div style={{ fontSize: 8, color: THEME.dim, fontFamily: THEME.mono, marginBottom: 3 }}>Vectorscope Style</div>
           <div style={{ display: "flex", gap: 4 }}>
             {[["dots", "Dots"], ["pixels", "Pixels"]].map(([val, label]) => {
               const active = (prefs.vectorscopeStyle ?? "dots") === val;
               return (
                 <button key={val} onClick={() => update("vectorscopeStyle", val)} style={{
+                  flex: 1, padding: "5px 6px",
+                  background: active ? THEME.accent : THEME.card,
+                  color: active ? THEME.bg : THEME.sub,
+                  border: `1px solid ${active ? THEME.accent : THEME.border}`,
+                  borderRadius: 4, fontSize: 8, fontFamily: THEME.mono, fontWeight: 700,
+                  cursor: "pointer", letterSpacing: 0.5,
+                }}>{label}</button>
+              );
+            })}
+          </div>
+
+          <div style={{ fontSize: 8, color: THEME.dim, fontFamily: THEME.mono, marginBottom: 3, marginTop: 8 }}>Spectral Waveform Blend</div>
+          <div style={{ display: "flex", gap: 4 }}>
+            {[["classic", "Classic"], ["layered", "Layered"]].map(([val, label]) => {
+              const active = (prefs.spectralBlend ?? "layered") === val;
+              return (
+                <button key={val} onClick={() => update("spectralBlend", val)} style={{
                   flex: 1, padding: "5px 6px",
                   background: active ? THEME.accent : THEME.card,
                   color: active ? THEME.bg : THEME.sub,

@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from "react";
-import { THEME } from './theme.js';
+import { THEME, applyTheme, withAlpha } from './theme.js';
 import { BANDS_7, DEFAULT_PREFS } from './constants.js';
 import { GENRE_TARGETS } from './analysis/genres.js';
 import { analyzeAsync, analyzeBPM } from './analysis/analyze.js';
@@ -116,16 +116,33 @@ export default function MixAnalyzer() {
   const [progress, setProgress] = useState("");
   const [activeTab, setActiveTab] = useState(0);
   const [dragOver, setDragOver] = useState(false);
-  const [prefs, setPrefs] = useState(() => ({
-    ...DEFAULT_PREFS,
-    apiKey: localStorage.getItem('anthropicApiKey') || '',
-  }));
+  const [prefs, setPrefs] = useState(() => {
+    const stored = localStorage.getItem('themePreset');
+    const initial = {
+      ...DEFAULT_PREFS,
+      apiKey: localStorage.getItem('anthropicApiKey') || '',
+      themePreset: stored || DEFAULT_PREFS.themePreset,
+    };
+    // Apply before first render so there's no flash of the default palette.
+    applyTheme(initial.themePreset);
+    return initial;
+  });
+  useEffect(() => {
+    applyTheme(prefs.themePreset);
+    localStorage.setItem('themePreset', prefs.themePreset);
+  }, [prefs.themePreset]);
   const [showPrefs, setShowPrefs] = useState(false);
   const [view, setView] = useState("analysis");
-  const ZOOM_MIN = 0.5, ZOOM_MAX = 2;
+  // Baseline matches reference view (browser 250% × 1.37× slider ≈ 3.425×).
+  // The slider now reads as a multiplier *of the baseline*, so uiZoom=1 → 3.4× effective.
+  const UI_ZOOM_BASE = 2.55;
+  const ZOOM_MIN = 0.5, ZOOM_MAX = 1.5;
   const [uiZoom, setUiZoom] = useState(() => {
-    const v = parseFloat(localStorage.getItem('uiZoom') || '1');
-    return Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, isFinite(v) ? v : 1));
+    // One-shot migration: stored values from the old scheme (range 0.5–2.5 at 0.75× multiplier)
+    // map to a new default. If we detect a pre-migration value (anything > ZOOM_MAX), reset to 1.
+    const raw = parseFloat(localStorage.getItem('uiZoom') || '1');
+    const v = isFinite(raw) && raw > 0 && raw <= ZOOM_MAX ? raw : 1;
+    return Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, v));
   });
   const [zoomHover, setZoomHover] = useState(false);
   const setZoomValue = (v) => {
@@ -225,9 +242,9 @@ export default function MixAnalyzer() {
   return (
     <div style={{ minHeight: "100vh", background: T.bg, color: T.text, fontFamily: T.sans }}>
       <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+      <div style={{ zoom: isMobile ? 1 : UI_ZOOM_BASE }}>
       {showPrefs && <Preferences prefs={prefs} setPrefs={setPrefs} onClose={() => setShowPrefs(false)} />}
-
-      {/* Header */}
+      {/* Header (fixed at baseline scale, unaffected by slider) */}
       <div style={{ padding: isMobile ? "10px 10px 8px" : "14px 18px 10px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
           <div style={{ width: 24, height: 24, borderRadius: 5, background: "linear-gradient(135deg, #ff3366, #6644ff)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>◉</div>
@@ -274,13 +291,14 @@ export default function MixAnalyzer() {
           <button onClick={() => setShowPrefs(true)} style={{ background: T.card, color: T.sub, border: `1px solid ${T.border}`, borderRadius: 4, padding: "4px 9px", fontSize: 8, cursor: "pointer", fontFamily: T.mono }}>⚙</button>
         </div>
       </div>
+      </div>
 
-      <div style={{ zoom: isMobile ? 1 : uiZoom * 0.75 }}>
+      <div style={{ zoom: isMobile ? 1 : uiZoom * UI_ZOOM_BASE }}>
 
       {/* Drop zone */}
       {!stems.length && !analyzing && (
         <div onDragOver={e => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={handleDrop} onClick={() => fileRef.current?.click()}
-          style={{ margin: 18, padding: "36px 18px", border: `2px dashed ${dragOver ? T.accent : "#1a1a30"}`, borderRadius: 10, textAlign: "center", cursor: "pointer", background: dragOver ? "#6644ff06" : T.card }}>
+          style={{ margin: 18, padding: "36px 18px", border: `2px dashed ${dragOver ? T.accent : T.border}`, borderRadius: 10, textAlign: "center", cursor: "pointer", background: dragOver ? withAlpha(T.accent, 0.04) : T.card }}>
           <div style={{ fontSize: 26, marginBottom: 5 }}>🎚️</div>
           <div style={{ fontSize: 12, fontWeight: 600 }}>Drop audio files</div>
           <div style={{ fontSize: 9, color: T.sub, marginTop: 3 }}>WAV · MP3 · FLAC · OGG</div>
@@ -300,27 +318,27 @@ export default function MixAnalyzer() {
         <div style={{ padding: isMobile ? "0 8px 12px" : "0 18px 18px" }}>
           {/* Toolbar */}
           <div style={{ display: "flex", gap: 4, padding: "7px 0", flexWrap: "wrap", alignItems: "center" }}>
-            <button onClick={() => fileRef.current?.click()} style={{ background: T.card, color: "#7766bb", border: `1px solid ${T.border}`, borderRadius: 3, padding: "3px 7px", fontSize: 8, cursor: "pointer", fontFamily: T.mono }}>+ Add</button>
+            <button onClick={() => fileRef.current?.click()} style={{ background: T.card, color: T.accent, border: `1px solid ${T.border}`, borderRadius: 3, padding: "3px 7px", fontSize: 8, cursor: "pointer", fontFamily: T.mono }}>+ Add</button>
             <input ref={fileRef} type="file" multiple accept="audio/*,.wav,.mp3,.flac,.ogg,.aac,.m4a" onChange={e => { const f = Array.from(e.target.files); if (f.length) processFiles(f); }} style={{ display: "none" }} />
-            <button onClick={() => refFileRef.current?.click()} style={{ background: refStem ? "#ffc84418" : T.card, color: refStem ? "#ffc844" : T.sub, border: `1px solid ${refStem ? "#ffc84440" : T.border}`, borderRadius: 3, padding: "3px 7px", fontSize: 8, cursor: "pointer", fontFamily: T.mono }}>+ REF</button>
+            <button onClick={() => refFileRef.current?.click()} style={{ background: refStem ? withAlpha(T.warn, 0.09) : T.card, color: refStem ? T.warn : T.sub, border: `1px solid ${refStem ? withAlpha(T.warn, 0.25) : T.border}`, borderRadius: 3, padding: "3px 7px", fontSize: 8, cursor: "pointer", fontFamily: T.mono }}>+ REF</button>
             <input ref={refFileRef} type="file" accept="audio/*,.wav,.mp3,.flac,.ogg,.aac,.m4a" onChange={e => { const f = e.target.files[0]; if (f) loadReference(f); e.target.value = ""; }} style={{ display: "none" }} />
             {refStem && (
-              <div style={{ display: "flex", alignItems: "center", gap: 3, padding: "2px 6px", background: "#ffc84410", border: "1px solid #ffc84430", borderRadius: 3 }}>
-                <span style={{ fontSize: 7, color: "#ffc844", fontFamily: T.mono, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>REF: {refStem.name.replace(/\.[^.]+$/, "")}</span>
-                <button onClick={() => setRefStem(null)} style={{ background: "none", border: "none", color: "#ffc84480", cursor: "pointer", fontSize: 9, padding: 0, lineHeight: 1 }}>×</button>
+              <div style={{ display: "flex", alignItems: "center", gap: 3, padding: "2px 6px", background: withAlpha(T.warn, 0.06), border: `1px solid ${withAlpha(T.warn, 0.19)}`, borderRadius: 3 }}>
+                <span style={{ fontSize: 7, color: T.warn, fontFamily: T.mono, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>REF: {refStem.name.replace(/\.[^.]+$/, "")}</span>
+                <button onClick={() => setRefStem(null)} style={{ background: "none", border: "none", color: withAlpha(T.warn, 0.5), cursor: "pointer", fontSize: 9, padding: 0, lineHeight: 1 }}>×</button>
               </div>
             )}
             <div style={{ marginLeft: "auto", display: "flex", gap: 2 }}>
               {["analysis", "stereo", "feedback"].map(v => (
                 <button key={v} onClick={() => setView(v)} style={{
                   padding: "3px 7px", fontSize: 7, fontFamily: T.mono, textTransform: "uppercase", letterSpacing: 1,
-                  background: view === v ? T.accent + "18" : T.card, color: view === v ? "#bb99ff" : T.sub,
-                  border: `1px solid ${view === v ? T.accent + "33" : T.border}`, borderRadius: 3, cursor: "pointer",
+                  background: view === v ? withAlpha(T.accent, 0.09) : T.card, color: view === v ? T.accent : T.sub,
+                  border: `1px solid ${view === v ? withAlpha(T.accent, 0.2) : T.border}`, borderRadius: 3, cursor: "pointer",
                 }}>{v}</button>
               ))}
             </div>
             <button onClick={() => { setStems([]); setBuffers([]); setActiveTab(0); }} style={{
-              background: "#ff335512", color: "#ff6688", border: "1px solid #ff335528", borderRadius: 3, padding: "3px 7px", fontSize: 8, cursor: "pointer", fontFamily: T.mono,
+              background: withAlpha(T.error, 0.07), color: T.error, border: `1px solid ${withAlpha(T.error, 0.16)}`, borderRadius: 3, padding: "3px 7px", fontSize: 8, cursor: "pointer", fontFamily: T.mono,
             }}>Clear</button>
           </div>
 
@@ -328,16 +346,16 @@ export default function MixAnalyzer() {
           <div style={{ display: "flex", gap: 2, marginBottom: 10, flexWrap: "wrap" }}>
             {stems.map((s, i) => (
               <button key={i} onClick={() => setActiveTab(i)} style={{
-                background: activeTab === i ? T.accent + "18" : T.card, color: activeTab === i ? "#bb99ff" : T.sub,
-                border: `1px solid ${activeTab === i ? T.accent + "33" : T.border}`, borderRadius: 3,
+                background: activeTab === i ? withAlpha(T.accent, 0.09) : T.card, color: activeTab === i ? T.accent : T.sub,
+                border: `1px solid ${activeTab === i ? withAlpha(T.accent, 0.2) : T.border}`, borderRadius: 3,
                 padding: "3px 7px", fontSize: 8, cursor: "pointer", fontFamily: T.mono,
                 maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
               }}>{s.name.replace(/\.[^.]+$/, "")}</button>
             ))}
             {stems.length > 1 && (
               <button onClick={() => setActiveTab(-1)} style={{
-                background: activeTab === -1 ? "#ff335512" : T.card, color: activeTab === -1 ? "#ff6688" : T.sub,
-                border: `1px solid ${activeTab === -1 ? "#ff335528" : T.border}`, borderRadius: 3,
+                background: activeTab === -1 ? withAlpha(T.error, 0.07) : T.card, color: activeTab === -1 ? T.error : T.sub,
+                border: `1px solid ${activeTab === -1 ? withAlpha(T.error, 0.16) : T.border}`, borderRadius: 3,
                 padding: "3px 7px", fontSize: 8, cursor: "pointer", fontFamily: T.mono,
               }}>⚡Mask</button>
             )}
@@ -348,11 +366,11 @@ export default function MixAnalyzer() {
             <div>
               <h2 style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>Masking</h2>
               {!maskingWarnings.length
-                ? <div style={{ padding: 8, background: T.good + "08", borderLeft: `3px solid ${T.good}`, borderRadius: "0 3px 3px 0", fontSize: 10, color: "#88ddaa" }}>No significant masking detected.</div>
+                ? <div style={{ padding: 8, background: T.good + "08", borderLeft: `3px solid ${T.good}`, borderRadius: "0 3px 3px 0", fontSize: 10, color: T.good }}>No significant masking detected.</div>
                 : maskingWarnings.map((m, i) => (
                   <div key={i} style={{ padding: "6px 9px", background: T.warn + "08", borderLeft: `3px solid ${T.warn}`, borderRadius: "0 3px 3px 0", marginBottom: 3 }}>
-                    <div style={{ fontSize: 8, fontWeight: 600, color: "#ff9966" }}>{m.a.replace(/\.[^.]+$/, "")} × {m.b.replace(/\.[^.]+$/, "")}</div>
-                    <div style={{ fontSize: 9, color: "#9a9ab0", marginTop: 1 }}>Competing: <strong>{m.band}</strong> ({m.range})</div>
+                    <div style={{ fontSize: 8, fontWeight: 600, color: T.warn }}>{m.a.replace(/\.[^.]+$/, "")} × {m.b.replace(/\.[^.]+$/, "")}</div>
+                    <div style={{ fontSize: 9, color: T.sub, marginTop: 1 }}>Competing: <strong>{m.band}</strong> ({m.range})</div>
                   </div>
                 ))}
             </div>
@@ -457,8 +475,8 @@ export default function MixAnalyzer() {
 
           {activeTab >= 0 && current && current.error && (
             <div style={{ padding: 10, background: T.error + "08", borderLeft: `3px solid ${T.error}`, borderRadius: "0 3px 3px 0" }}>
-              <div style={{ color: "#ff6688", fontWeight: 600, fontSize: 10 }}>{current.name}</div>
-              <div style={{ color: "#8a8a9a", marginTop: 2, fontSize: 9 }}>{current.error}</div>
+              <div style={{ color: T.error, fontWeight: 600, fontSize: 10 }}>{current.name}</div>
+              <div style={{ color: T.sub, marginTop: 2, fontSize: 9 }}>{current.error}</div>
             </div>
           )}
         </div>

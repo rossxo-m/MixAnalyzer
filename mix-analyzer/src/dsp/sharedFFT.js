@@ -106,8 +106,8 @@ export function computeSharedFFT(buffer) {
     for (let i = 0; i < N; i++) reMid[i] = ((L[off + i] + R[off + i]) * 0.5) * win[i];
     fft(reMid, imMid);
 
-    // Side FFT — needed for spectrum side curve and (via M/S) stereo bands
-    const needsSide = needsSpec || (needsStereo && isStereo);
+    // Side FFT — needed for spectrum side curve, stereo bands, and (stereo) waveform color
+    const needsSide = needsSpec || (needsStereo && isStereo) || (needsWave && isStereo);
     if (needsSide) {
       imSide.fill(0);
       for (let i = 0; i < N; i++) reSide[i] = ((L[off + i] - R[off + i]) * 0.5) * win[i];
@@ -155,13 +155,15 @@ export function computeSharedFFT(buffer) {
     }
 
     // ── Spectral waveform colour hop (band energies only) ──
+    // Use |M|² + |S|² (= (|L|² + |R|²)/2) so pure-side content still colors correctly.
     if (needsWave) {
       const bandEnergy = [0, 0, 0];
       let totalE = 0;
       for (let b = 0; b < 3; b++) {
         const { lo, hi } = band3Ranges[b];
         for (let k = lo; k <= hi; k++) {
-          const mag = reMid[k] * reMid[k] + imMid[k] * imMid[k];
+          let mag = reMid[k] * reMid[k] + imMid[k] * imMid[k];
+          if (isStereo) mag += reSide[k] * reSide[k] + imSide[k] * imSide[k];
           bandEnergy[b] += mag;
           totalE += mag;
         }
@@ -196,9 +198,10 @@ export function computeSharedFFT(buffer) {
     let mx = 0, mn = 0, sumSq = 0;
     const n = s1 - s0;
     for (let i = s0; i < s1; i++) {
-      const v = (L[i] + R[i]) * 0.5;
-      if (v > mx) mx = v;
-      if (v < mn) mn = v;
+      const l = L[i], r = R[i];
+      if (l > mx) mx = l; if (r > mx) mx = r;
+      if (l < mn) mn = l; if (r < mn) mn = r;
+      const v = (l + r) * 0.5;
       sumSq += v * v;
     }
     const rms = n > 0 ? Math.sqrt(sumSq / n) : 0;

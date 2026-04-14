@@ -4,6 +4,7 @@
    ════════════════════════════════════════════════════ */
 
 import { fft } from '../dsp/fft.js';
+import { THEME, hexToRgb, withAlpha } from '../theme.js';
 
 // DPR-aware canvas setup: sets physical pixel dimensions from CSS layout, applies scale transform.
 // Returns { ctx, W, H, PW, PH, dpr } where W/H are logical CSS pixels for drawing.
@@ -59,22 +60,22 @@ export function drawLiveSpec(canvas, analyser, slope, mode, filterBank, msMode, 
   const freqGrid = [50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000];
   const isSpectrograph = mode === "spectrograph";
 
-  // ── Background (always dark) ──
-  ctx.fillStyle = "#080812";
+  // ── Background ──
+  ctx.fillStyle = THEME.waveBg;
   ctx.fillRect(0, 0, W, H);
 
   // Grid drawn in line mode; spectrograph overlays its own grid after putImageData
   if (!isSpectrograph) {
     for (const f of freqGrid) {
       const x = Math.log(f / fMin) / Math.log(fMax / fMin) * W;
-      ctx.strokeStyle = "#151528"; ctx.lineWidth = 0.5;
+      ctx.strokeStyle = THEME.waveGrid; ctx.lineWidth = 0.5;
       ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
     }
     for (let db = Math.ceil(dbFloor / 10) * 10; db <= dbCeil; db += 10) {
       const y = H - ((db - dbFloor) / (dbCeil - dbFloor)) * H;
-      ctx.strokeStyle = "#1a1a30"; ctx.lineWidth = 0.5;
+      ctx.strokeStyle = THEME.waveGrid; ctx.lineWidth = 0.5;
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
-      ctx.font = "6px 'JetBrains Mono', monospace"; ctx.fillStyle = "#2a2a44"; ctx.textAlign = "right";
+      ctx.font = "6px 'JetBrains Mono', monospace"; ctx.fillStyle = THEME.waveGridText; ctx.textAlign = "right";
       ctx.fillText(`${db}`, W - 2, y - 2);
     }
   }
@@ -188,7 +189,7 @@ export function drawLiveSpec(canvas, analyser, slope, mode, filterBank, msMode, 
     ctx.globalAlpha = 0.25;
     for (const f of freqGrid) {
       const x = Math.log(f / fMin) / Math.log(fMax / fMin) * W;
-      ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 0.4;
+      ctx.strokeStyle = THEME.playhead; ctx.lineWidth = 0.4;
       ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
     }
     ctx.globalAlpha = 1.0;
@@ -216,6 +217,9 @@ export function drawLiveSpec(canvas, analyser, slope, mode, filterBank, msMode, 
     path(); ctx.strokeStyle = strokeColor; ctx.lineWidth = lw; ctx.stroke();
   };
 
+  const [mr, mg, mb] = hexToRgb(THEME.midCurve);
+  const [sr, sg, sb] = hexToRgb(THEME.sideCurve);
+
   if (hasMS) {
     const ptsS = Array.from({ length: numPts }, (_, i) => [
       (i / (numPts - 1)) * W,
@@ -224,24 +228,24 @@ export function drawLiveSpec(canvas, analyser, slope, mode, filterBank, msMode, 
     if (!isSpectrograph) {
       // Fills only in line mode (would obscure spectrograph)
       const gradM = ctx.createLinearGradient(0, 0, 0, H);
-      gradM.addColorStop(0, "rgba(51,170,255,0.2)"); gradM.addColorStop(1, "rgba(51,170,255,0.01)");
+      gradM.addColorStop(0, `rgba(${mr},${mg},${mb},0.2)`); gradM.addColorStop(1, `rgba(${mr},${mg},${mb},0.01)`);
       ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
       pts.forEach(p => ctx.lineTo(p[0], p[1]));
       ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath(); ctx.fillStyle = gradM; ctx.fill();
       const gradS = ctx.createLinearGradient(0, 0, 0, H);
-      gradS.addColorStop(0, "rgba(255,136,51,0.15)"); gradS.addColorStop(1, "rgba(255,136,51,0.01)");
+      gradS.addColorStop(0, `rgba(${sr},${sg},${sb},0.15)`); gradS.addColorStop(1, `rgba(${sr},${sg},${sb},0.01)`);
       ctx.beginPath(); ctx.moveTo(ptsS[0][0], ptsS[0][1]);
       ptsS.forEach(p => ctx.lineTo(p[0], p[1]));
       ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath(); ctx.fillStyle = gradS; ctx.fill();
     }
-    drawCurve(pts,  "#55ccff", 1.3, "rgba(51,170,255,0.3)", 3);
-    drawCurve(ptsS, "#ff8833", 1.3, "rgba(255,136,51,0.3)", 3);
+    drawCurve(pts,  THEME.midCurve, 1.3, `rgba(${mr},${mg},${mb},0.3)`, 3);
+    drawCurve(ptsS, THEME.sideCurve, 1.3, `rgba(${sr},${sg},${sb},0.3)`, 3);
     ctx.font = "7px 'JetBrains Mono', monospace"; ctx.textAlign = "left";
-    ctx.fillStyle = isSpectrograph ? "rgba(85,204,255,0.8)" : "#55ccff"; ctx.fillText("MID", 6, 12);
-    ctx.fillStyle = isSpectrograph ? "rgba(255,136,51,0.8)" : "#ff8833"; ctx.fillText("SIDE", 6, 22);
+    ctx.fillStyle = isSpectrograph ? `rgba(${mr},${mg},${mb},0.8)` : THEME.midCurve; ctx.fillText("MID", 6, 12);
+    ctx.fillStyle = isSpectrograph ? `rgba(${sr},${sg},${sb},0.8)` : THEME.sideCurve; ctx.fillText("SIDE", 6, 22);
   } else {
     if (!isSpectrograph) {
-      const bandRanges = [[20, 200, "#ff5544"], [200, 4000, "#44cc66"], [4000, 20000, "#4488ff"]];
+      const bandRanges = [[20, 200, THEME.bandLow], [200, 4000, THEME.bandMid], [4000, 20000, THEME.bandHigh]];
       for (const [lo, hi, color] of bandRanges) {
         const i0 = pts.findIndex((_, i) => rawFreq[i] >= lo);
         const i1 = pts.findIndex((_, i) => rawFreq[i] >= hi);
@@ -249,25 +253,25 @@ export function drawLiveSpec(canvas, analyser, slope, mode, filterBank, msMode, 
         ctx.beginPath(); ctx.moveTo(pts[i0][0], pts[i0][1]);
         for (let i = i0+1; i <= i1 && i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
         ctx.lineTo(pts[i1][0], H); ctx.lineTo(pts[i0][0], H); ctx.closePath();
-        ctx.fillStyle = color + "18"; ctx.fill();
+        ctx.fillStyle = withAlpha(color, 0.09); ctx.fill();
       }
       const grad = ctx.createLinearGradient(0, 0, 0, H);
-      grad.addColorStop(0, "rgba(51,170,255,0.4)");
-      grad.addColorStop(0.5, "rgba(51,170,255,0.12)");
-      grad.addColorStop(1, "rgba(51,170,255,0.02)");
+      grad.addColorStop(0, `rgba(${mr},${mg},${mb},0.4)`);
+      grad.addColorStop(0.5, `rgba(${mr},${mg},${mb},0.12)`);
+      grad.addColorStop(1, `rgba(${mr},${mg},${mb},0.02)`);
       ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
       pts.forEach(p => ctx.lineTo(p[0], p[1]));
       ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath(); ctx.fillStyle = grad; ctx.fill();
     }
-    drawCurve(pts, isSpectrograph ? "#55ccffcc" : "#55ccff", 1.3,
-      isSpectrograph ? "rgba(51,170,255,0.2)" : "rgba(51,170,255,0.3)", 3);
+    drawCurve(pts, isSpectrograph ? withAlpha(THEME.midCurve, 0.8) : THEME.midCurve, 1.3,
+      isSpectrograph ? `rgba(${mr},${mg},${mb},0.2)` : `rgba(${mr},${mg},${mb},0.3)`, 3);
   }
 
   // Freq labels
   ctx.font = "7px 'JetBrains Mono', monospace"; ctx.textAlign = "center";
   for (const f of [50, 200, 1000, 5000, 10000]) {
     const x = Math.log(f / fMin) / Math.log(fMax / fMin) * W;
-    ctx.fillStyle = isSpectrograph ? "rgba(255,255,255,0.35)" : "#3a3a55";
+    ctx.fillStyle = isSpectrograph ? withAlpha(THEME.playhead, 0.35) : THEME.waveGridText;
     ctx.fillText(f >= 1000 ? `${f/1000}k` : `${f}`, x, H - 3);
   }
 }
@@ -334,51 +338,98 @@ export function drawWaveCanvas(canvas, waveData, prefs, duration, bpm, keyData, 
   const frameCount = frames.length;
 
   // Clip indicator dashes
-  ctx.strokeStyle = "#ff336615"; ctx.lineWidth = 0.5;
+  ctx.strokeStyle = withAlpha(THEME.clipIndicator, 0.08); ctx.lineWidth = 0.5;
   ctx.setLineDash([3, 3]);
   ctx.beginPath(); ctx.moveTo(0, 0.5); ctx.lineTo(W, 0.5); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(0, H - 0.5); ctx.lineTo(W, H - 0.5); ctx.stroke();
   ctx.setLineDash([]);
 
   // Center line
-  ctx.strokeStyle = "#111120"; ctx.lineWidth = 1;
+  ctx.strokeStyle = THEME.waveCenter; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(0, H / 2); ctx.lineTo(W, H / 2); ctx.stroke();
 
   if (isSpectral) {
     const bw = Math.max(0.8, W / frameCount);
-    for (let fi = 0; fi < frameCount; fi++) {
-      const frame = frames[fi];
-      const x = (fi / frameCount) * W;
-      const amplitude = frame.rms * H / 2;
-      if (amplitude < 0.3) continue;
+    const blendMode = prefs.spectralBlend === "classic" ? "classic" : "layered";
 
-      let low = toggles[0] ? frame.low : 0;
-      let mid = toggles[1] ? frame.mid : 0;
-      let high = toggles[2] ? frame.high : 0;
-      const sum = low + mid + high;
-      if (sum < 0.001) continue;
-      low /= sum; mid /= sum; high /= sum;
+    if (blendMode === "classic") {
+      // Single weighted-color stroke per column (original Phase 1 visual).
+      for (let fi = 0; fi < frameCount; fi++) {
+        const frame = frames[fi];
+        const x = (fi / frameCount) * W;
+        const amplitude = frame.rms * H / 2;
+        if (amplitude < 0.3) continue;
 
-      const r = Math.round(low * 255 + mid * 60 + high * 70);
-      const g = Math.round(low * 80 + mid * 210 + high * 130);
-      const b = Math.round(low * 60 + mid * 100 + high * 255);
-      const peakH = Math.max(frame.mx, -frame.mn) * H / 2;
+        let low = toggles[0] ? frame.low : 0;
+        let mid = toggles[1] ? frame.mid : 0;
+        let high = toggles[2] ? frame.high : 0;
+        const sum = low + mid + high;
+        if (sum < 0.001) continue;
+        low /= sum; mid /= sum; high /= sum;
 
+        const [lr, lg, lb] = hexToRgb(THEME.bandLow);
+        const [midR, midG, midB] = hexToRgb(THEME.bandMid);
+        const [hr, hg, hb] = hexToRgb(THEME.bandHigh);
+        const r = Math.round(low * lr + mid * midR + high * hr);
+        const g = Math.round(low * lg + mid * midG + high * hg);
+        const b = Math.round(low * lb + mid * midB + high * hb);
+        const peakH = Math.max(frame.mx, -frame.mn) * H / 2;
+
+        ctx.lineWidth = bw;
+        ctx.strokeStyle = `rgba(${r},${g},${b},0.18)`;
+        ctx.beginPath(); ctx.moveTo(x, H / 2 - peakH); ctx.lineTo(x, H / 2 + peakH); ctx.stroke();
+        ctx.strokeStyle = `rgba(${r},${g},${b},0.7)`;
+        ctx.beginPath(); ctx.moveTo(x, H / 2 - amplitude); ctx.lineTo(x, H / 2 + amplitude); ctx.stroke();
+      }
+    } else {
+      // Layered additive: per-band strokes under `lighter`, alpha scaled by band
+      // proportion so sum-of-alphas = BASE (no whiteout on overlap).
+      const BAND_COLORS = [
+        hexToRgb(THEME.bandLow),
+        hexToRgb(THEME.bandMid),
+        hexToRgb(THEME.bandHigh),
+      ];
+      const PEAK_BASE = 0.32;
+      const RMS_BASE = 0.92;
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
       ctx.lineWidth = bw;
-      ctx.strokeStyle = `rgba(${r},${g},${b},0.18)`;
-      ctx.beginPath(); ctx.moveTo(x, H / 2 - peakH); ctx.lineTo(x, H / 2 + peakH); ctx.stroke();
-      ctx.strokeStyle = `rgba(${r},${g},${b},0.7)`;
-      ctx.beginPath(); ctx.moveTo(x, H / 2 - amplitude); ctx.lineTo(x, H / 2 + amplitude); ctx.stroke();
+      for (let fi = 0; fi < frameCount; fi++) {
+        const frame = frames[fi];
+        const x = (fi / frameCount) * W;
+        const amplitude = frame.rms * H / 2;
+        if (amplitude < 0.3) continue;
+
+        const v0 = toggles[0] ? frame.low : 0;
+        const v1 = toggles[1] ? frame.mid : 0;
+        const v2 = toggles[2] ? frame.high : 0;
+        const sum = v0 + v1 + v2;
+        if (sum < 0.001) continue;
+        const peakH = Math.max(frame.mx, -frame.mn) * H / 2;
+
+        const vals = [v0 / sum, v1 / sum, v2 / sum];
+        for (let bi = 0; bi < 3; bi++) {
+          const v = vals[bi];
+          if (v <= 0) continue;
+          const [r, g, b] = BAND_COLORS[bi];
+          ctx.strokeStyle = `rgba(${r},${g},${b},${(PEAK_BASE * v).toFixed(4)})`;
+          ctx.beginPath(); ctx.moveTo(x, H / 2 - peakH); ctx.lineTo(x, H / 2 + peakH); ctx.stroke();
+          ctx.strokeStyle = `rgba(${r},${g},${b},${(RMS_BASE * v).toFixed(4)})`;
+          ctx.beginPath(); ctx.moveTo(x, H / 2 - amplitude); ctx.lineTo(x, H / 2 + amplitude); ctx.stroke();
+        }
+      }
+      ctx.restore();
     }
   } else {
     const bw = Math.max(0.65, W / frameCount);
     for (let fi = 0; fi < frameCount; fi++) {
       const frame = frames[fi];
       const x = (fi / frameCount) * W;
+      const [ar, ag, ab] = hexToRgb(THEME.accent);
       ctx.lineWidth = bw;
-      ctx.strokeStyle = "rgba(102,68,255,0.11)";
+      ctx.strokeStyle = `rgba(${ar},${ag},${ab},0.11)`;
       ctx.beginPath(); ctx.moveTo(x, H / 2 - frame.mx * H / 2); ctx.lineTo(x, H / 2 - frame.mn * H / 2); ctx.stroke();
-      ctx.strokeStyle = "rgba(102,68,255,0.5)";
+      ctx.strokeStyle = `rgba(${ar},${ag},${ab},0.5)`;
       ctx.beginPath(); ctx.moveTo(x, H / 2 - frame.rms * H / 2); ctx.lineTo(x, H / 2 + frame.rms * H / 2); ctx.stroke();
     }
   }
@@ -390,13 +441,14 @@ export function drawWaveCanvas(canvas, waveData, prefs, duration, bpm, keyData, 
     const frame = frames[fi];
     if (frame.mx >= CLIP_THRESH || frame.mn <= -CLIP_THRESH) {
       const x = (fi / frameCount) * W;
-      ctx.fillStyle = "#ff2244cc";
+      ctx.fillStyle = withAlpha(THEME.clipIndicator, 0.8);
       ctx.fillRect(x, 0, bwClip + 0.5, 3);
     }
   }
 
   // Beat grid: adaptive subdivisions appear as you zoom in (bar → beat → 8th → 16th)
   if (bpm > 0 && duration > 0) {
+    const [br, bg, bb] = hexToRgb(THEME.beatGrid);
     const beatInterval = 60 / bpm;
     const barInterval = beatInterval * 4;
     const visibleStart = startFrac * duration;
@@ -414,11 +466,11 @@ export function drawWaveCanvas(canvas, waveData, prefs, duration, bpm, keyData, 
       const isBar  = (t % barInterval)  < subInterval * 0.3;
       const isBeat = !isBar && (t % beatInterval) < subInterval * 0.3;
       if (isBar) {
-        ctx.strokeStyle = "rgba(255,136,51,0.35)"; ctx.lineWidth = 1;
+        ctx.strokeStyle = `rgba(${br},${bg},${bb},0.35)`; ctx.lineWidth = 1;
       } else if (isBeat) {
-        ctx.strokeStyle = "rgba(255,136,51,0.15)"; ctx.lineWidth = 0.5;
+        ctx.strokeStyle = `rgba(${br},${bg},${bb},0.15)`; ctx.lineWidth = 0.5;
       } else {
-        ctx.strokeStyle = "rgba(255,136,51,0.06)"; ctx.lineWidth = 0.35;
+        ctx.strokeStyle = `rgba(${br},${bg},${bb},0.06)`; ctx.lineWidth = 0.35;
       }
       ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
     }
@@ -428,23 +480,25 @@ export function drawWaveCanvas(canvas, waveData, prefs, duration, bpm, keyData, 
   ctx.font = "bold 8px 'JetBrains Mono', monospace";
   if (bpm > 0) {
     ctx.textAlign = "left";
-    ctx.fillStyle = "rgba(255,136,51,0.7)";
+    ctx.fillStyle = withAlpha(THEME.beatGrid, 0.7);
     ctx.fillText(`${bpm} BPM`, 6, 11);
   }
   if (keyData?.key) {
-    const keyColor = keyData.mode === "minor" ? "#aa66ff" : "#33ccaa";
+    const keyColor = keyData.mode === "minor" ? THEME.keyMinor : THEME.keyMajor;
     ctx.textAlign = "right";
-    ctx.fillStyle = keyColor + "bb";
+    ctx.fillStyle = withAlpha(keyColor, 0.73);
     ctx.fillText(keyData.key, W - 6, 11);
   }
 
   // Zoom position indicator (mini map strip) — visible only when zoomed
   if (zoom > 1) {
-    ctx.fillStyle = "rgba(255,255,255,0.04)";
+    const [tr, tg, tb] = hexToRgb(THEME.text);
+    const [ar2, ag2, ab2] = hexToRgb(THEME.accent);
+    ctx.fillStyle = `rgba(${tr},${tg},${tb},0.04)`;
     ctx.fillRect(0, H - 4, W, 4);
     const thumbW = W * visibleFrac;
     const thumbX = startFrac * W;
-    ctx.fillStyle = "rgba(102,68,255,0.35)";
+    ctx.fillStyle = `rgba(${ar2},${ag2},${ab2},0.35)`;
     ctx.fillRect(thumbX, H - 4, thumbW, 4);
   }
 }
@@ -467,13 +521,15 @@ export function drawOverlay(canvas, position, duration, zoom = 1, scrollPct = 0)
   if (posFrac < startFrac || posFrac > endFrac) return;
   const px = ((posFrac - startFrac) / visibleFrac) * W;
 
-  ctx.fillStyle = "rgba(102,68,255,0.04)";
+  const [ar, ag, ab] = hexToRgb(THEME.accent);
+  const [pr, pg, pb] = hexToRgb(THEME.playhead);
+  ctx.fillStyle = `rgba(${ar},${ag},${ab},0.04)`;
   ctx.fillRect(0, 0, Math.max(0, px), H);
 
-  ctx.strokeStyle = "rgba(255,255,255,0.8)"; ctx.lineWidth = 1.5;
+  ctx.strokeStyle = `rgba(${pr},${pg},${pb},0.8)`; ctx.lineWidth = 1.5;
   ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, H); ctx.stroke();
 
-  ctx.fillStyle = "rgba(255,255,255,0.85)";
+  ctx.fillStyle = `rgba(${pr},${pg},${pb},0.85)`;
   ctx.beginPath(); ctx.arc(px, H / 2, 3, 0, Math.PI * 2); ctx.fill();
 }
 
@@ -487,20 +543,20 @@ function drawPhaseBand(ctx, band, corr, W, rowH, bandNames, bandColors) {
   const centerX = barLeft + barW / 2;
   const barY = y + rowH / 2;
 
-  ctx.fillStyle = "#0c0c1a";
+  ctx.fillStyle = THEME.waveCard;
   ctx.fillRect(barLeft, barY - 6, barW, 12);
 
-  ctx.strokeStyle = "#2a2a44"; ctx.lineWidth = 1;
+  ctx.strokeStyle = THEME.waveGridText; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(centerX, barY - 6); ctx.lineTo(centerX, barY + 6); ctx.stroke();
 
   ctx.font = "6px 'JetBrains Mono', monospace"; ctx.textAlign = "center";
-  ctx.fillStyle = "#2a2a44";
+  ctx.fillStyle = THEME.waveGridText;
   ctx.fillText("L", barLeft - 6, barY + 2);
   ctx.fillText("R", barRight + 6, barY + 2);
 
   const dotX = centerX + corr * (barW / 2);
-  const dotColor = corr < 0 ? "#ff3355" : corr < 0.3 ? "#ff8833" : bandColors[band];
-  ctx.fillStyle = dotColor + "33";
+  const dotColor = corr < 0 ? THEME.error : corr < 0.3 ? THEME.warn : bandColors[band];
+  ctx.fillStyle = withAlpha(dotColor, 0.2);
   ctx.fillRect(Math.min(centerX, dotX), barY - 5, Math.abs(dotX - centerX), 10);
   ctx.beginPath(); ctx.arc(dotX, barY, 4, 0, Math.PI * 2);
   ctx.fillStyle = dotColor; ctx.fill();
@@ -509,7 +565,7 @@ function drawPhaseBand(ctx, band, corr, W, rowH, bandNames, bandColors) {
   ctx.fillStyle = bandColors[band]; ctx.fillText(bandNames[band], 4, barY + 3);
 
   ctx.font = "7px 'JetBrains Mono', monospace"; ctx.textAlign = "right";
-  ctx.fillStyle = corr < 0 ? "#ff3355" : "#5a5a70";
+  ctx.fillStyle = corr < 0 ? THEME.error : THEME.sub;
   ctx.fillText(corr.toFixed(2), W - 2, barY + 3);
 }
 
@@ -518,10 +574,10 @@ export function drawPhaseMeter(canvas, filterBank, scrubPhaseData = null) {
   const setup = setupCanvas(canvas);
   if (!setup) return;
   const { ctx, W, H } = setup;
-  ctx.fillStyle = "#080812"; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = THEME.waveBg; ctx.fillRect(0, 0, W, H);
 
   const bandNames = ["LOW", "MID", "HIGH"];
-  const bandColors = ["#ff5544", "#44cc66", "#4488ff"];
+  const bandColors = [THEME.bandLow, THEME.bandMid, THEME.bandHigh];
   const rowH = Math.floor(H / 3);
 
   if (!filterBank?.analysers?.length && !scrubPhaseData) {
@@ -529,12 +585,12 @@ export function drawPhaseMeter(canvas, filterBank, scrubPhaseData = null) {
     ctx.font = "7px 'JetBrains Mono', monospace"; ctx.textAlign = "left";
     for (let i = 0; i < 3; i++) {
       const y = i * rowH + rowH / 2;
-      ctx.fillStyle = "#2a2a44"; ctx.fillText(bandNames[i], 4, y + 3);
-      ctx.strokeStyle = "#1a1a30"; ctx.lineWidth = 1;
+      ctx.fillStyle = THEME.waveGridText; ctx.fillText(bandNames[i], 4, y + 3);
+      ctx.strokeStyle = THEME.waveGrid; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(35, y); ctx.lineTo(W - 30, y); ctx.stroke();
       // Center tick
       const cx = 35 + (W - 65) / 2;
-      ctx.strokeStyle = "#2a2a44"; ctx.beginPath(); ctx.moveTo(cx, y - 5); ctx.lineTo(cx, y + 5); ctx.stroke();
+      ctx.strokeStyle = THEME.waveGridText; ctx.beginPath(); ctx.moveTo(cx, y - 5); ctx.lineTo(cx, y + 5); ctx.stroke();
     }
     return;
   }
@@ -605,7 +661,7 @@ export function drawLufsMeter(canvas, analyser, scrubDb = null, prefs = null) {
   const setup = setupCanvas(canvas);
   if (!setup) return;
   const { ctx, W, H } = setup;
-  ctx.fillStyle = "#080812"; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = THEME.waveBg; ctx.fillRect(0, 0, W, H);
 
   const dbMin = -50, dbMax = 0;
   const dbRange = dbMax - dbMin;
@@ -614,9 +670,9 @@ export function drawLufsMeter(canvas, analyser, scrubDb = null, prefs = null) {
   const scaleW = 22;
   for (let db = -50; db <= 0; db += 10) {
     const y = H - ((db - dbMin) / dbRange) * H;
-    ctx.strokeStyle = "#1a1a30"; ctx.lineWidth = 0.5;
+    ctx.strokeStyle = THEME.waveGrid; ctx.lineWidth = 0.5;
     ctx.beginPath(); ctx.moveTo(scaleW, y); ctx.lineTo(W, y); ctx.stroke();
-    ctx.font = "7px 'JetBrains Mono', monospace"; ctx.textAlign = "right"; ctx.fillStyle = "#3a3a55";
+    ctx.font = "7px 'JetBrains Mono', monospace"; ctx.textAlign = "right"; ctx.fillStyle = THEME.waveGridText;
     ctx.fillText(`${db}`, scaleW - 2, y + 3);
   }
 
@@ -624,33 +680,35 @@ export function drawLufsMeter(canvas, analyser, scrubDb = null, prefs = null) {
   if (prefs?.lufsTarget != null) {
     const tY = H - ((prefs.lufsTarget - dbMin) / dbRange) * H;
     if (tY > 0 && tY < H) {
-      ctx.strokeStyle = "#22cc6688"; ctx.lineWidth = 1;
+      ctx.strokeStyle = withAlpha(THEME.good, 0.53); ctx.lineWidth = 1;
       ctx.setLineDash([4, 3]);
       ctx.beginPath(); ctx.moveTo(scaleW, tY); ctx.lineTo(W, tY); ctx.stroke();
       ctx.setLineDash([]);
       ctx.font = "6px 'JetBrains Mono', monospace"; ctx.textAlign = "right";
-      ctx.fillStyle = "#22cc6699";
+      ctx.fillStyle = withAlpha(THEME.good, 0.6);
       ctx.fillText(`${prefs.lufsTarget}`, scaleW - 2, tY - 1);
     }
   }
+
+  const lufsColor = (db) => db > -6 ? THEME.error : db > -14 ? THEME.warn : THEME.info;
 
   // Scrub mode: use pre-computed momentaryDb, skip history + analyser
   if (scrubDb !== null) {
     const momentaryDb = Math.max(-60, scrubDb);
     const mH = Math.max(0, ((momentaryDb - dbMin) / dbRange)) * H;
-    const mColor = momentaryDb > -6 ? "#ff3355" : momentaryDb > -14 ? "#ff8833" : "#33aaff";
+    const mColor = lufsColor(momentaryDb);
     const mGrad = ctx.createLinearGradient(0, H - mH, 0, H);
-    mGrad.addColorStop(0, mColor); mGrad.addColorStop(1, mColor + "44");
+    mGrad.addColorStop(0, mColor); mGrad.addColorStop(1, withAlpha(mColor, 0.27));
     const scaleW2 = 22, barsW2 = W - scaleW2 - 2;
     ctx.fillStyle = mGrad;
     ctx.fillRect(scaleW2, H - mH, barsW2, mH);
     ctx.font = "8px 'JetBrains Mono', monospace"; ctx.textAlign = "center";
     ctx.shadowColor = "rgba(0,0,0,0.85)"; ctx.shadowBlur = 3;
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = THEME.text;
     ctx.fillText(momentaryDb > -60 ? momentaryDb.toFixed(1) : "---", scaleW2 + barsW2 / 2, 10);
     ctx.shadowBlur = 0;
     ctx.font = "6px 'JetBrains Mono', monospace";
-    ctx.fillStyle = "#4a4a66"; ctx.fillText("SCRUB", scaleW2 + barsW2 / 2, H - 2);
+    ctx.fillStyle = THEME.dim; ctx.fillText("SCRUB", scaleW2 + barsW2 / 2, H - 2);
     return;
   }
 
@@ -691,29 +749,29 @@ export function drawLufsMeter(canvas, analyser, scrubDb = null, prefs = null) {
 
   // Momentary bar
   const mH = Math.max(0, ((momentaryDb - dbMin) / dbRange)) * H;
-  const mColor = momentaryDb > -6 ? "#ff3355" : momentaryDb > -14 ? "#ff8833" : "#33aaff";
+  const mColor = lufsColor(momentaryDb);
   const mGrad = ctx.createLinearGradient(0, H - mH, 0, H);
   mGrad.addColorStop(0, mColor);
-  mGrad.addColorStop(1, mColor + "44");
+  mGrad.addColorStop(1, withAlpha(mColor, 0.27));
   ctx.fillStyle = mGrad;
   ctx.fillRect(barLeft, H - mH, barW, mH);
 
   // Short-term bar
   const stH = Math.max(0, ((shortTermDb - dbMin) / dbRange)) * H;
-  ctx.fillStyle = "#6644ff55";
+  ctx.fillStyle = withAlpha(THEME.accent, 0.33);
   ctx.fillRect(stBarLeft, H - stH, stBarW, stH);
 
   // Peak line
   const peakY = H - ((_lufsPeak - dbMin) / dbRange) * H;
   if (peakY > 0 && peakY < H) {
-    ctx.strokeStyle = "#ffffff88"; ctx.lineWidth = 1;
+    ctx.strokeStyle = withAlpha(THEME.playhead, 0.53); ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(barLeft - 2, peakY); ctx.lineTo(stBarLeft + stBarW + 2, peakY); ctx.stroke();
   }
 
-  // Value readouts above each bar — constant white with shadow for legibility over any bar color
+  // Value readouts above each bar — constant light text with shadow for legibility over any bar color
   ctx.shadowColor = "rgba(0,0,0,0.85)"; ctx.shadowBlur = 3;
   ctx.font = "8px 'JetBrains Mono', monospace"; ctx.textAlign = "center";
-  ctx.fillStyle = "#ffffff";
+  ctx.fillStyle = THEME.text;
   ctx.fillText(momentaryDb > -60 ? momentaryDb.toFixed(1) : "---", barLeft + barW / 2, 10);
   ctx.font = "7px 'JetBrains Mono', monospace";
   ctx.fillText(shortTermDb > -60 ? shortTermDb.toFixed(1) : "---", stBarLeft + stBarW / 2, 10);
@@ -721,7 +779,7 @@ export function drawLufsMeter(canvas, analyser, scrubDb = null, prefs = null) {
 
   // Column labels at bottom
   ctx.font = "6px 'JetBrains Mono', monospace"; ctx.textAlign = "center";
-  ctx.fillStyle = "#4a4a66";
+  ctx.fillStyle = THEME.dim;
   ctx.fillText("M", barLeft + barW / 2, H - 2);
   ctx.fillText("ST", stBarLeft + stBarW / 2, H - 2);
 
@@ -745,7 +803,7 @@ export function drawDBMeter(canvas, lAnalyser, rAnalyser) {
   if (!setup) return;
   const { ctx, W, H } = setup;
 
-  ctx.fillStyle = "#080812";
+  ctx.fillStyle = THEME.waveBg;
   ctx.fillRect(0, 0, W, H);
 
   const dbMin = -60, dbMax = 0, dbRange = dbMax - dbMin;
@@ -755,18 +813,18 @@ export function drawDBMeter(canvas, lAnalyser, rAnalyser) {
   // Grid lines
   for (const db of [-6, -12, -18, -24, -36, -48]) {
     const y = H - ((db - dbMin) / dbRange) * H;
-    ctx.strokeStyle = "#1a1a30"; ctx.lineWidth = 0.5;
+    ctx.strokeStyle = THEME.waveGrid; ctx.lineWidth = 0.5;
     ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
   }
   // dB labels
   ctx.font = "5px 'JetBrains Mono', monospace"; ctx.textAlign = "center";
   for (const db of [-12, -24, -48]) {
     const y = H - ((db - dbMin) / dbRange) * H;
-    ctx.fillStyle = "#2a2a44";
+    ctx.fillStyle = THEME.waveGridText;
     ctx.fillText(`${db}`, W / 2, y - 1);
   }
   // 0 dBFS ceiling marker
-  ctx.strokeStyle = "#ff334422"; ctx.lineWidth = 1;
+  ctx.strokeStyle = withAlpha(THEME.error, 0.13); ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(0, 1); ctx.lineTo(W, 1); ctx.stroke();
 
   if (!lAnalyser) { _dbPeakL = _dbPeakR = -90; _dbDecayL = _dbDecayR = 0; return; }
@@ -795,20 +853,20 @@ export function drawDBMeter(canvas, lAnalyser, rAnalyser) {
   function drawBar(db, peakDb, x) {
     const clamped = Math.max(dbMin, db);
     const barH = Math.max(0, (clamped - dbMin) / dbRange) * H;
-    const color = db > -3 ? "#ff3355" : db > -12 ? "#ff8833" : "#33aaff";
+    const color = db > -3 ? THEME.error : db > -12 ? THEME.warn : THEME.info;
     const grad = ctx.createLinearGradient(x, H - barH, x, H);
-    grad.addColorStop(0, color); grad.addColorStop(1, color + "55");
+    grad.addColorStop(0, color); grad.addColorStop(1, withAlpha(color, 0.33));
     ctx.fillStyle = grad;
     ctx.fillRect(x, H - barH, barW, barH);
     // Peak hold tick
     const peakY = H - Math.max(0, (Math.max(dbMin, peakDb) - dbMin) / dbRange) * H;
     if (peakY > 1 && peakY < H - 8) {
-      ctx.fillStyle = peakDb > -3 ? "#ff3355cc" : "#ffffffaa";
+      ctx.fillStyle = peakDb > -3 ? withAlpha(THEME.error, 0.8) : withAlpha(THEME.playhead, 0.67);
       ctx.fillRect(x, peakY, barW, 2);
     }
     // Clip flash at top
     if (db > -0.5) {
-      ctx.fillStyle = "#ff335588";
+      ctx.fillStyle = withAlpha(THEME.error, 0.53);
       ctx.fillRect(x, 0, barW, 3);
     }
   }
@@ -818,7 +876,7 @@ export function drawDBMeter(canvas, lAnalyser, rAnalyser) {
 
   // L / R labels
   ctx.font = "5px 'JetBrains Mono', monospace"; ctx.textAlign = "center";
-  ctx.fillStyle = "#3a3a55";
+  ctx.fillStyle = THEME.waveGridText;
   ctx.fillText("L", barW / 2, H - 1);
   ctx.fillText("R", barW + gap + barW / 2, H - 1);
 }
@@ -841,28 +899,28 @@ export function drawVectorscope(canvas, filterBank, scrubVsData = null, style = 
   const cy = isWide ? H : Math.min(W, H) / 2 + (H - Math.min(W, H)) / 2;
   const labelSz = Math.max(6, Math.round(Math.min(W, H) * 0.07));
 
-  ctx.fillStyle = "#080812";
+  ctx.fillStyle = THEME.waveBg;
   ctx.fillRect(0, 0, W, H);
 
   // Axes
-  ctx.strokeStyle = "#151525"; ctx.lineWidth = 0.5;
+  ctx.strokeStyle = THEME.waveGrid; ctx.lineWidth = 0.5;
   ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, H); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(0, cy); ctx.lineTo(W, cy); ctx.stroke();
 
   if (!isWide) {
-    ctx.strokeStyle = "#12122a"; ctx.lineWidth = 0.3;
+    ctx.strokeStyle = THEME.waveCenter; ctx.lineWidth = 0.3;
     ctx.beginPath(); ctx.moveTo(0, cy + cx); ctx.lineTo(cx + (H - cy), 0); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(W, cy + (W - cx)); ctx.lineTo(W - (H - cy), 0); ctx.stroke();
   }
 
   // Reference circles
-  ctx.strokeStyle = "#151525"; ctx.lineWidth = 0.4;
+  ctx.strokeStyle = THEME.waveGrid; ctx.lineWidth = 0.4;
   ctx.beginPath(); ctx.arc(cx, cy, radius * 0.5, 0, Math.PI * 2); ctx.stroke();
   ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI * 2); ctx.stroke();
 
   // Labels
   ctx.font = `${labelSz}px 'JetBrains Mono', monospace`;
-  ctx.fillStyle = "#2a2a44";
+  ctx.fillStyle = THEME.waveGridText;
   ctx.textAlign = "center";
   ctx.fillText("M", cx, labelSz + 2);
   ctx.textAlign = "right";
@@ -876,7 +934,7 @@ export function drawVectorscope(canvas, filterBank, scrubVsData = null, style = 
     const { lSlice, rSlice, bandSlices } = scrubVsData;
     if (bandSlices && bandSlices.length >= 6) {
       const n = lSlice.length;
-      const bandRGB = [[255, 85, 68], [68, 204, 102], [68, 136, 255]];
+      const bandRGB = [hexToRgb(THEME.bandLow), hexToRgb(THEME.bandMid), hexToRgb(THEME.bandHigh)];
       ctx.globalCompositeOperation = "lighter";
       const dotR = Math.max(0.9, Math.min(W, H) * 0.006);
       for (let i = 0; i < n; i++) {
@@ -912,7 +970,7 @@ export function drawVectorscope(canvas, filterBank, scrubVsData = null, style = 
         const py = cy - m * radius;
         if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
       }
-      ctx.strokeStyle = "rgba(51,170,255,0.25)";
+      ctx.strokeStyle = withAlpha(THEME.midCurve, 0.25);
       ctx.lineWidth = 0.8;
       ctx.stroke();
     }
@@ -937,7 +995,7 @@ export function drawVectorscope(canvas, filterBank, scrubVsData = null, style = 
     });
     // Use tail of wideband buffer to align temporal window with band buffers (1:1 sample mapping)
     const wbOffset = bufSize - bandBufSize;
-    const bandRGB = [[255, 85, 68], [68, 204, 102], [68, 136, 255]];
+    const bandRGB = [hexToRgb(THEME.bandLow), hexToRgb(THEME.bandMid), hexToRgb(THEME.bandHigh)];
     ctx.globalCompositeOperation = "lighter";
     const dotR = Math.max(0.9, Math.min(W, H) * 0.006);
     for (let i = 0; i < bandBufSize; i++) {
@@ -974,7 +1032,7 @@ export function drawVectorscope(canvas, filterBank, scrubVsData = null, style = 
       const py = cy - m * radius;
       if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
     }
-    ctx.strokeStyle = "rgba(51,170,255,0.18)";
+    ctx.strokeStyle = withAlpha(THEME.midCurve, 0.18);
     ctx.lineWidth = 0.7;
     ctx.stroke();
   }

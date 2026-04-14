@@ -1,8 +1,8 @@
 # Mix Analyzer — Task Tracker
 
-Last updated: 2026-04-13  
-Branch: `feature/phase7-prep`  
-Phases 1–6.9 complete. Phase 7 in progress.
+Last updated: 2026-04-14  
+Branch: `ui`  
+Phases 1–6.9 complete. Phase 7 in progress. UI theming overhaul on `ui` branch.
 
 ---
 
@@ -100,8 +100,25 @@ Migration is incremental — no big-bang rewrites. Each task above moves one pie
 
 ---
 
+## Recently Completed (UI Branch — Theming Overhaul, 2026-04-14)
+
+- ✅ **UI zoom reduction**: `UI_ZOOM_BASE` 3.4× → 2.55× in [App.jsx](mix-analyzer/src/App.jsx) — denser default layout
+- ✅ **Preferences modal scaling**: moved inside header zoom wrapper + added own `zoom: 0.75` so settings panel renders at ~1.91× instead of full 2.55×; backdrop uses `withAlpha(THEME.bg, 0.72)` so it darkens correctly in light themes too
+- ✅ **Full canvas theming**: all draw functions in [src/canvas/drawers.js](mix-analyzer/src/canvas/drawers.js) (`drawLiveSpec`, `drawWaveCanvas`, `drawOverlay`, `drawVectorscope`, `drawLufsMeter`, `drawPhaseMeter`, `drawDBMeter`) now read from `THEME.*` instead of hardcoded hex/rgba literals. Alpha-blended colors use `hexToRgb()` once per draw + template strings for rgba channels. Spectrograph colormap kept hardcoded (perceptually uniform, readable on all bgs)
+- ✅ [SpectrumDisplay.jsx](mix-analyzer/src/components/SpectrumDisplay.jsx) theming: spectrum bg/grid/curve/fill/freq labels/M-S legend all themed
+- ✅ Button theming in [App.jsx](mix-analyzer/src/App.jsx) + [PlaybackWaveform.jsx](mix-analyzer/src/components/PlaybackWaveform.jsx): view tabs, stem tabs, +Add, +REF, mask/clear, play/stop, MONO, band mutes, zoom indicator, M/S, SPECTRAL, line/spectrograph — all use `THEME.accent/error/warn/good` + `withAlpha`
+- ✅ **Theme renames**: `aurora` → `nebula`, `console` → `graphite`, `obsidian` → `onyx`, `midnight` → `abyss`, `synthwave` → `retrograde`, `paper` → `daylight` — removed MiniMeters-derivative names. Updated [theme.js](mix-analyzer/src/theme.js), [constants.js](mix-analyzer/src/constants.js) (`DEFAULT_PREFS.themePreset: "nebula"`), [Preferences.jsx](mix-analyzer/src/components/Preferences.jsx) fallback
+- ✅ **Palette document**: [Desktop/mix-analyzer-themes.html](../../Desktop/mix-analyzer-themes.html) — standalone HTML renders all theme cards (6 shipping + 6 companion siblings + 2 new light themes), each with theme-accurate bg/border/text, Chrome (11 keys) and Signal (15 keys) swatch groups, luminance-adaptive swatch text
+- ✅ **Companion palettes generated** (not yet wired into app): Plasma, Slate, Ink, Tide, Vaporwave, Parchment (siblings of the 6 shipping themes) + Porcelain (pure white, steel-blue) + Linen (off-white, muted violet) — awaiting user confirmation before integration into `theme.js`
+
 ## Recently Completed (Phase 6.9)
 
+- ✅ DSP audit fixes:
+  - LUFS integrated loudness now combined in the power domain per BS.1770-4 §5.1 (`10·log10(mean 10^(L/10))` over gated blocks) instead of linearly averaging dB values; abs+rel gates applied sequentially on the same set
+  - BPM autocorrelation now runs over the full onset sequence (was capped to `lagMax*2` ≈ 2.4s regardless of track length — locked to noise when first seconds were a pickup)
+  - Waveform peak/clip detection at base resolution now scans both L and R channels (was mid-only → single-channel clips that phase-cancel in M were missed at zoom 1–3×)
+  - Spectral waveform color now uses `|M|² + |S|²` when stereo so pure-side content still colors correctly (was mid-only → grey)
+- ✅ Spectral waveform additive blending: LOW/MID/HIGH drawn as independent per-band strokes under `globalCompositeOperation='lighter'` — overlaps sum (R+G+B → white, R+G → yellow, etc.) so heavy-overlap frames brighten instead of one band washing the color; save/restore scopes the composite so clip strip + beat grid unaffected
 - ✅ M/S live spectrum fix: time-domain Mid=(L+R)/2 and Side=(L-R)/2 before FFT — was incorrectly using magnitude spectra, discarding phase
 - ✅ UI zoom cycle button: 1×/1.5×/2×/2.5× cycle on header button, persisted in localStorage, applied via CSS `zoom` on root div
 

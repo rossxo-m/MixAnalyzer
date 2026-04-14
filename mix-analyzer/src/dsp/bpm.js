@@ -40,16 +40,17 @@ export function computeBPM(buffer) {
   for (let h = 0; h < numFrames; h++) { if (onset[h] > maxO) maxO = onset[h]; }
   for (let h = 0; h < numFrames; h++) onset[h] /= maxO;
 
-  // Autocorrelation — BPM range 50–220
+  // Autocorrelation — BPM range 50–220, over the FULL onset sequence
   const fps = sr / hop;
   const lagMin = Math.floor(fps * 60 / 220);
   const lagMax = Math.ceil(fps * 60 / 50);
-  const acLen = Math.min(numFrames, lagMax * 2);
+  const acLen = numFrames;
   const ac = new Float32Array(lagMax + 1);
   for (let lag = lagMin; lag <= lagMax; lag++) {
     let sum = 0;
-    for (let h = 0; h + lag < acLen; h++) sum += onset[h] * onset[h + lag];
-    ac[lag] = sum / (acLen - lag); // normalize by window length
+    const end = acLen - lag;
+    for (let h = 0; h < end; h++) sum += onset[h] * onset[h + lag];
+    ac[lag] = sum / end; // normalize by number of summed pairs
   }
 
   // Enhanced scoring: each lag accumulates AC at its integer multiples (2×, 3×, 4× = bar level)
