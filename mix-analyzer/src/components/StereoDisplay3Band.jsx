@@ -13,8 +13,8 @@ export function StereoDisplay3Band({ bands, crossover }) {
           <div key={band.name}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
               <span style={{ width: 32, fontSize: 10, color: THEME.sub, fontFamily: THEME.mono, fontWeight: 600 }}>{band.name}</span>
-              <div style={{ flex: 1, position: "relative", height: 14, background: "#080812", borderRadius: 3, overflow: "hidden" }}>
-                <div style={{ position: "absolute", left: "50%", top: 0, bottom: 0, width: 1, background: "#1a1a30" }} />
+              <div style={{ flex: 1, position: "relative", height: 14, background: THEME.waveBg, borderRadius: 3, overflow: "hidden" }}>
+                <div style={{ position: "absolute", left: "50%", top: 0, bottom: 0, width: 1, background: THEME.waveGrid }} />
                 <div style={{
                   position: "absolute", left: `${50 - w/2}%`, width: `${Math.max(w, 0.5)}%`,
                   top: 0, bottom: 0, background: barColor, opacity: 0.6, borderRadius: 3,

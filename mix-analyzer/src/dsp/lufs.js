@@ -75,8 +75,13 @@ export function computeLUFS(buffer) {
   let powerSum = 0;
   for (const l of gated) powerSum += Math.pow(10, l / 10);
   const relativeThreshold = 10 * Math.log10(powerSum / gated.length) - 10;
-  const finalGated = blockLoudness.filter(l => l > relativeThreshold);
-  const integrated = finalGated.length ? finalGated.reduce((a, b) => a + b) / finalGated.length : -70;
+  // Apply both gates sequentially (abs then rel) per BS.1770-4
+  const finalGated = gated.filter(l => l > relativeThreshold);
+  // Integrated loudness = power-domain mean of surviving blocks (the -0.691 offset is
+  // already baked into each block value, so 10·log10(mean 10^(L/10)) gives correct LUFS).
+  let finalPowerSum = 0;
+  for (const l of finalGated) finalPowerSum += Math.pow(10, l / 10);
+  const integrated = finalGated.length ? 10 * Math.log10(finalPowerSum / finalGated.length) : -70;
 
   // LRA + short-term max
   const stBlocks = [];

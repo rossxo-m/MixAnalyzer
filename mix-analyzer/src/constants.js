@@ -23,6 +23,7 @@ export const DEFAULT_PREFS = {
   genre: "EDM / Electronic",
   specSlope: 3.0,     // dB/octave (0, 3, 4.5)
   waveMode: "spectral", // "uniform" | "spectral"
+  spectralBlend: "layered", // "classic" (single RGB mix per column) | "layered" (additive per-band, normalized alpha)
   stereoMode: "3band",  // "3band" | "7band"
   bandToggles: [true, true, true], // Low, Mid, High
   liveSpecMode: "line", // "line" | "spectrograph"
@@ -32,6 +33,7 @@ export const DEFAULT_PREFS = {
   feedbackTier: 1,      // 1 = offline template engine; 3 = Claude API (backend /feedback)
   apiKey: "",           // optional — sent as Bearer header, overrides backend env key
   vectorscopeStyle: "dots", // "dots" | "pixels"
+  themePreset: "nebula", // nebula | graphite | onyx | abyss | retrograde | daylight
 };
 
 // Per-genre colors for target curve overlay

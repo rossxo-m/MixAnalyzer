@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { THEME } from '../theme.js';
+import { THEME, withAlpha } from '../theme.js';
 import { BANDS_3 } from '../constants.js';
 import { GENRE_COLORS } from '../constants.js';
 import { GENRE_CURVES, interpolateTargetCurve } from '../analysis/genres.js';
@@ -61,18 +61,18 @@ function drawSpectrum(canvas, points, pointsS, slope, genre, refPoints, msMode) 
   const dbToY = db => H - ((db - dbMin) / dbRange) * H;
 
   // Background
-  ctx.fillStyle = "#080812";
+  ctx.fillStyle = THEME.waveBg;
   ctx.fillRect(0, 0, W, H);
 
   // dB grid
   for (let db = dbMin; db <= dbMax; db += 6) {
     const y = dbToY(db);
     const isMajor = db % 12 === 0;
-    ctx.strokeStyle = isMajor ? "#222240" : "#141428";
+    ctx.strokeStyle = isMajor ? THEME.waveGridText : THEME.waveGrid;
     ctx.lineWidth = isMajor ? 1 : 0.5;
     ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
     ctx.font = `7px '${THEME.mono}', monospace`;
-    ctx.fillStyle = isMajor ? "#4a4a65" : "#2a2a44";
+    ctx.fillStyle = isMajor ? THEME.sub : THEME.waveGridText;
     ctx.textAlign = "right";
     ctx.fillText(`${db}`, W - 3, y - 2);
   }
@@ -82,7 +82,7 @@ function drawSpectrum(canvas, points, pointsS, slope, genre, refPoints, msMode) 
   for (const f of freqGrid) {
     const x = fToX(f);
     const isMajor = [100, 1000, 10000].includes(f);
-    ctx.strokeStyle = isMajor ? "#1a1a30" : "#111125";
+    ctx.strokeStyle = isMajor ? THEME.waveGrid : THEME.waveCenter;
     ctx.lineWidth = isMajor ? 0.6 : 0.4;
     ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
   }
@@ -110,8 +110,8 @@ function drawSpectrum(canvas, points, pointsS, slope, genre, refPoints, msMode) 
 
   // Fill under curve with gradient
   const grad = ctx.createLinearGradient(0, 0, 0, H);
-  grad.addColorStop(0, "rgba(51,170,255,0.25)");
-  grad.addColorStop(1, "rgba(51,170,255,0.02)");
+  grad.addColorStop(0, withAlpha(THEME.midCurve, 0.25));
+  grad.addColorStop(1, withAlpha(THEME.midCurve, 0.02));
   ctx.beginPath();
   ctx.moveTo(ptsX[0], ptsY[0]);
   for (let i = 1; i < len; i++) ctx.lineTo(ptsX[i], ptsY[i]);
@@ -124,8 +124,8 @@ function drawSpectrum(canvas, points, pointsS, slope, genre, refPoints, msMode) 
     ctx.moveTo(ptsX[0], ptsY[0]);
     for (let i = 1; i < len; i++) ctx.lineTo(ptsX[i], ptsY[i]);
   };
-  traceCurve(); ctx.strokeStyle = "#33aaff"; ctx.lineWidth = 2.2; ctx.globalAlpha = 0.3; ctx.stroke(); ctx.globalAlpha = 1;
-  traceCurve(); ctx.strokeStyle = "#55ccff"; ctx.lineWidth = 1.3; ctx.stroke();
+  traceCurve(); ctx.strokeStyle = THEME.midCurve; ctx.lineWidth = 2.2; ctx.globalAlpha = 0.3; ctx.stroke(); ctx.globalAlpha = 1;
+  traceCurve(); ctx.strokeStyle = THEME.midCurve; ctx.lineWidth = 1.3; ctx.stroke();
 
   // M/S: Side curve overlay
   if (msMode && compensatedS) {
@@ -140,15 +140,15 @@ function drawSpectrum(canvas, points, pointsS, slope, genre, refPoints, msMode) 
     ctx.moveTo(sX[0], sY[0]);
     for (let i = 1; i < sLen; i++) ctx.lineTo(sX[i], sY[i]);
     ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath();
-    ctx.fillStyle = "rgba(255,136,51,0.1)"; ctx.fill();
+    ctx.fillStyle = withAlpha(THEME.sideCurve, 0.1); ctx.fill();
     // Side curve
     const traceS = () => { ctx.beginPath(); ctx.moveTo(sX[0], sY[0]); for (let i = 1; i < sLen; i++) ctx.lineTo(sX[i], sY[i]); };
-    traceS(); ctx.strokeStyle = "#ff8833"; ctx.lineWidth = 2; ctx.globalAlpha = 0.3; ctx.stroke(); ctx.globalAlpha = 1;
-    traceS(); ctx.strokeStyle = "#ffaa55"; ctx.lineWidth = 1.2; ctx.stroke();
+    traceS(); ctx.strokeStyle = THEME.sideCurve; ctx.lineWidth = 2; ctx.globalAlpha = 0.3; ctx.stroke(); ctx.globalAlpha = 1;
+    traceS(); ctx.strokeStyle = THEME.sideCurve; ctx.lineWidth = 1.2; ctx.stroke();
     // Legend
     ctx.font = `8px '${THEME.mono}', monospace`; ctx.textAlign = "left";
-    ctx.fillStyle = "#55ccff"; ctx.fillText("MID", 6, 14);
-    ctx.fillStyle = "#ffaa55"; ctx.fillText("SIDE", 36, 14);
+    ctx.fillStyle = THEME.midCurve; ctx.fillText("MID", 6, 14);
+    ctx.fillStyle = THEME.sideCurve; ctx.fillText("SIDE", 36, 14);
   }
 
   // Reference spectrum overlay — gold dashed
@@ -242,7 +242,7 @@ function drawSpectrum(canvas, points, pointsS, slope, genre, refPoints, msMode) 
   for (const f of freqLabels) {
     const x = fToX(f);
     const isMain = [100, 1000, 10000].includes(f);
-    ctx.fillStyle = isMain ? "#3a3a55" : "#222238";
+    ctx.fillStyle = isMain ? THEME.waveGridText : THEME.waveGrid;
     ctx.font = `${isMain ? 8 : 7}px '${THEME.mono}', monospace`;
     ctx.fillText(f >= 1000 ? `${f / 1000}k` : `${f}`, x, H - 3);
   }
@@ -272,7 +272,7 @@ export function SpectrumDisplay({ points, pointsS, slope, genre, refPoints }) {
   const genreColor = genre ? (GENRE_COLORS[genre] || "#ffcc44") : "#ffcc44";
 
   return (
-    <div style={{ background: "#080812", borderRadius: 7, padding: "8px 8px 4px", marginBottom: 14 }}>
+    <div style={{ background: THEME.waveBg, borderRadius: 7, padding: "8px 8px 4px", marginBottom: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
         <span style={{ fontSize: 8, color: THEME.dim, fontFamily: THEME.mono, letterSpacing: 1.5 }}>
           SPECTRUM {genre && <span style={{ color: genreColor, letterSpacing: 0.5 }}>· {genre}</span>}
@@ -281,9 +281,9 @@ export function SpectrumDisplay({ points, pointsS, slope, genre, refPoints }) {
           {pointsS && (
             <button onClick={() => setMsMode(m => !m)} style={{
               padding: "1px 6px", fontSize: 7, fontFamily: THEME.mono,
-              background: msMode ? "#ff883322" : "transparent",
-              color: msMode ? "#ff8833" : THEME.dim,
-              border: `1px solid ${msMode ? "#ff883344" : THEME.border}`,
+              background: msMode ? withAlpha(THEME.sideCurve, 0.13) : "transparent",
+              color: msMode ? THEME.sideCurve : THEME.dim,
+              border: `1px solid ${msMode ? withAlpha(THEME.sideCurve, 0.27) : THEME.border}`,
               borderRadius: 2, cursor: "pointer",
             }}>M/S</button>
           )}

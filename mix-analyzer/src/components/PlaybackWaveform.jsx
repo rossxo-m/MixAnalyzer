@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { THEME } from '../theme.js';
+import { THEME, withAlpha } from '../theme.js';
 import { BANDS_3 } from '../constants.js';
 import { fft } from '../dsp/fft.js';
 import { drawLiveSpec, drawWaveCanvas, drawOverlay, drawVectorscope, drawLufsMeter, drawPhaseMeter, drawDBMeter, resetLufsState, resetDBMeterState, resetHeatmapBuf } from '../canvas/drawers.js';
@@ -641,9 +641,9 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
       <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
         <button onClick={toggle} style={{
           width: 28, height: 28, borderRadius: "50%",
-          background: playing ? "#ff335518" : THEME.accent + "18",
-          color: playing ? THEME.error : "#bb99ff",
-          border: `1px solid ${playing ? THEME.error + "44" : THEME.accent + "44"}`,
+          background: playing ? withAlpha(THEME.error, 0.09) : withAlpha(THEME.accent, 0.09),
+          color: playing ? THEME.error : THEME.accent,
+          border: `1px solid ${playing ? withAlpha(THEME.error, 0.27) : withAlpha(THEME.accent, 0.27)}`,
           cursor: "pointer", fontSize: 12,
           display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
         }}>{playing ? "■" : "▶"}</button>
@@ -669,9 +669,9 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
           if (playingRef.current) playFrom(positionRef.current);
         }} style={{
           padding: "2px 6px", fontSize: 7, fontFamily: THEME.mono,
-          background: prefs.monoPreview ? "#ff885522" : THEME.card,
-          color: prefs.monoPreview ? "#ff8855" : THEME.dim,
-          border: `1px solid ${prefs.monoPreview ? "#ff885544" : THEME.border}`,
+          background: prefs.monoPreview ? withAlpha(THEME.warn, 0.13) : THEME.card,
+          color: prefs.monoPreview ? THEME.warn : THEME.dim,
+          border: `1px solid ${prefs.monoPreview ? withAlpha(THEME.warn, 0.27) : THEME.border}`,
           borderRadius: 3, cursor: "pointer",
         }}>MONO</button>
 
@@ -680,7 +680,7 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
           {BANDS_3.map((band, i) => (
             <button key={band.name} onClick={() => toggleBandMute(i)} style={{
               padding: "2px 6px", fontSize: 7, fontFamily: THEME.mono,
-              background: bandMutes[i] ? "#33333344" : band.color + "22",
+              background: bandMutes[i] ? withAlpha(THEME.border, 0.4) : band.color + "22",
               color: bandMutes[i] ? THEME.dim : band.color,
               border: `1px solid ${bandMutes[i] ? THEME.border : band.color + "44"}`,
               borderRadius: 3, cursor: "pointer",
@@ -694,10 +694,10 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
       {/* Live Spectrum + Phase Meter + LUFS Meter (PROJECT.md layout) */}
       <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 0, borderRadius: "7px 7px 0 0", overflow: "hidden" }}>
         {/* Live Spectrum (left) */}
-        <div style={{ flex: 1, background: "#080812", minWidth: 0 }}>
+        <div style={{ flex: 1, background: THEME.waveBg, minWidth: 0 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 8px 0" }}>
             <span style={{ fontSize: 8, color: THEME.dim, fontFamily: THEME.mono, letterSpacing: 1.5 }}>
-              LIVE SPECTRUM {playing ? <span style={{ color: "#ff3366" }}>●</span> : <span style={{ color: THEME.dim }}>○</span>}
+              LIVE SPECTRUM {playing ? <span style={{ color: THEME.error }}>●</span> : <span style={{ color: THEME.dim }}>○</span>}
             </span>
             <div style={{ display: "flex", gap: 3, alignItems: "center" }}>
               {["line", "spectrograph"].map(m => (
@@ -706,9 +706,9 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
                   if (m !== prefs.liveSpecMode) { resetHeatmapBuf(); }
                 }} style={{
                   padding: "1px 6px", fontSize: 7, fontFamily: THEME.mono, textTransform: "uppercase",
-                  background: prefs.liveSpecMode === m ? THEME.accent + "18" : "transparent",
-                  color: prefs.liveSpecMode === m ? "#bb99ff" : THEME.dim,
-                  border: `1px solid ${prefs.liveSpecMode === m ? THEME.accent + "33" : THEME.border}`,
+                  background: prefs.liveSpecMode === m ? withAlpha(THEME.accent, 0.09) : "transparent",
+                  color: prefs.liveSpecMode === m ? THEME.accent : THEME.dim,
+                  border: `1px solid ${prefs.liveSpecMode === m ? withAlpha(THEME.accent, 0.2) : THEME.border}`,
                   borderRadius: 2, cursor: "pointer",
                 }}>{m}</button>
               ))}
@@ -728,7 +728,7 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
                   }}
                   style={{
                     width: 34, fontSize: 7, fontFamily: THEME.mono, padding: "1px 3px",
-                    background: "#0b0b16", color: THEME.sub,
+                    background: THEME.bg, color: THEME.sub,
                     border: `1px solid ${THEME.border}`, borderRadius: 2, outline: "none",
                   }} />
                 <span style={{ fontSize: 7, color: THEME.dim, fontFamily: THEME.mono }}>dB/oct</span>
@@ -742,12 +742,12 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
         {!isMobile && (
           <div onMouseDown={e => startResize(e, 'phase', panelW.phase)}
             style={{ width: 4, cursor: 'col-resize', background: 'transparent', flexShrink: 0 }}
-            onMouseEnter={e => e.currentTarget.style.background = '#2a2a44'}
+            onMouseEnter={e => e.currentTarget.style.background = THEME.border}
             onMouseLeave={e => e.currentTarget.style.background = 'transparent'} />
         )}
 
         {/* 3-Band Phase Meter */}
-        <div style={{ width: isMobile ? "100%" : panelW.phase, flexShrink: 0, background: "#080812" }}>
+        <div style={{ width: isMobile ? "100%" : panelW.phase, flexShrink: 0, background: THEME.waveBg }}>
           <div style={{ padding: "4px 6px 0" }}>
             <span style={{ fontSize: 7, color: THEME.dim, fontFamily: THEME.mono, letterSpacing: 1 }}>PHASE</span>
           </div>
@@ -758,12 +758,12 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
         {!isMobile && (
           <div onMouseDown={e => startResize(e, 'vs', panelW.vs)}
             style={{ width: 4, cursor: 'col-resize', background: 'transparent', flexShrink: 0 }}
-            onMouseEnter={e => e.currentTarget.style.background = '#2a2a44'}
+            onMouseEnter={e => e.currentTarget.style.background = THEME.border}
             onMouseLeave={e => e.currentTarget.style.background = 'transparent'} />
         )}
 
         {/* Live Vectorscope */}
-        <div style={{ width: isMobile ? "100%" : panelW.vs, flexShrink: 0, background: "#080812" }}>
+        <div style={{ width: isMobile ? "100%" : panelW.vs, flexShrink: 0, background: THEME.waveBg }}>
           <div style={{ padding: "4px 6px 0" }}>
             <span style={{ fontSize: 7, color: THEME.dim, fontFamily: THEME.mono, letterSpacing: 1 }}>VECTOR</span>
           </div>
@@ -774,12 +774,12 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
         {!isMobile && (
           <div onMouseDown={e => startResize(e, 'lufs', panelW.lufs)}
             style={{ width: 4, cursor: 'col-resize', background: 'transparent', flexShrink: 0 }}
-            onMouseEnter={e => e.currentTarget.style.background = '#2a2a44'}
+            onMouseEnter={e => e.currentTarget.style.background = THEME.border}
             onMouseLeave={e => e.currentTarget.style.background = 'transparent'} />
         )}
 
         {/* LUFS Meter */}
-        <div style={{ width: isMobile ? "100%" : panelW.lufs, flexShrink: 0, background: "#080812" }}>
+        <div style={{ width: isMobile ? "100%" : panelW.lufs, flexShrink: 0, background: THEME.waveBg }}>
           <div style={{ padding: "4px 6px 0" }}>
             <span style={{ fontSize: 7, color: THEME.dim, fontFamily: THEME.mono, letterSpacing: 1 }}>LUFS</span>
           </div>
@@ -791,16 +791,16 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
       {!isMobile && (
         <div onMouseDown={e => startVResize(e, setMeterH, meterH, 50, 300, 'meterH')}
           style={{ height: 4, cursor: 'row-resize', background: 'transparent' }}
-          onMouseEnter={e => e.currentTarget.style.background = '#2a2a44'}
+          onMouseEnter={e => e.currentTarget.style.background = THEME.border}
           onMouseLeave={e => e.currentTarget.style.background = 'transparent'} />
       )}
 
       {/* Canvas Waveform with playhead overlay */}
-      <div style={{ background: "#080812", borderRadius: "0 0 7px 7px", borderTop: "1px solid #111122" }}>
+      <div style={{ background: THEME.waveBg, borderRadius: "0 0 7px 7px", borderTop: `1px solid ${THEME.border}` }}>
         {/* Zoom controls — scroll wheel on waveform for continuous zoom, reset button + indicator here */}
         <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 6px 0" }}>
           <span style={{ fontSize: 7, color: THEME.dim, fontFamily: THEME.mono }}>ZOOM</span>
-          <span style={{ fontSize: 7, color: zoom > 1 ? "#bb99ff" : THEME.dim, fontFamily: THEME.mono, minWidth: 30 }}>
+          <span style={{ fontSize: 7, color: zoom > 1 ? THEME.accent : THEME.dim, fontFamily: THEME.mono, minWidth: 30 }}>
             {zoom.toFixed(zoom >= 10 ? 0 : 1)}×
           </span>
           {zoom > 1 && (
@@ -838,18 +838,18 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
             ))}
             <button onClick={() => setPrefs(p => ({ ...p, specMs: !p.specMs }))} style={{
               padding: "2px 8px", fontSize: 7, fontFamily: THEME.mono,
-              background: prefs.specMs ? "#ff885518" : THEME.card,
-              color: prefs.specMs ? "#ff9966" : THEME.dim,
-              border: `1px solid ${prefs.specMs ? "#ff885544" : THEME.border}`,
+              background: prefs.specMs ? withAlpha(THEME.warn, 0.09) : THEME.card,
+              color: prefs.specMs ? THEME.warn : THEME.dim,
+              border: `1px solid ${prefs.specMs ? withAlpha(THEME.warn, 0.27) : THEME.border}`,
               borderRadius: 3, cursor: "pointer",
             }}>M/S</button>
             <button onClick={() => {
               setPrefs(p => ({ ...p, waveMode: p.waveMode === "spectral" ? "uniform" : "spectral" }));
             }} style={{
               padding: "2px 8px", fontSize: 7, fontFamily: THEME.mono,
-              background: isSpectral ? THEME.accent + "18" : THEME.card,
-              color: isSpectral ? "#bb99ff" : THEME.dim,
-              border: `1px solid ${isSpectral ? THEME.accent + "33" : THEME.border}`,
+              background: isSpectral ? withAlpha(THEME.accent, 0.09) : THEME.card,
+              color: isSpectral ? THEME.accent : THEME.dim,
+              border: `1px solid ${isSpectral ? withAlpha(THEME.accent, 0.2) : THEME.border}`,
               borderRadius: 3, cursor: "pointer",
             }}>{isSpectral ? "SPECTRAL" : "UNIFORM"}</button>
           </div>
@@ -898,7 +898,7 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
       {!isMobile && (
         <div onMouseDown={e => startVResize(e, setWaveH, waveH, 60, 400, 'waveH')}
           style={{ height: 4, cursor: 'row-resize', background: 'transparent' }}
-          onMouseEnter={e => e.currentTarget.style.background = '#2a2a44'}
+          onMouseEnter={e => e.currentTarget.style.background = THEME.border}
           onMouseLeave={e => e.currentTarget.style.background = 'transparent'} />
       )}
     </div>
