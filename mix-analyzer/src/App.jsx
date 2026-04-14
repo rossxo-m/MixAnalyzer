@@ -11,6 +11,7 @@ import { MetricCard } from './components/MetricCard.jsx';
 import { FeedbackItem } from './components/FeedbackItem.jsx';
 import { BandBar } from './components/BandBar.jsx';
 import { Preferences } from './components/Preferences.jsx';
+import { useIsMobile } from './hooks/useIsMobile.js';
 
 function Vectorscope({ data, size = 190 }) {
   const canvasRef = useRef(null);
@@ -108,6 +109,7 @@ function Chromagram({ chroma, root, mode }) {
    ════════════════════════════════════════════════════ */
 
 export default function MixAnalyzer() {
+  const isMobile = useIsMobile();
   const [stems, setStems] = useState([]);
   const [buffers, setBuffers] = useState([]);
   const [analyzing, setAnalyzing] = useState(false);
@@ -226,7 +228,7 @@ export default function MixAnalyzer() {
       {showPrefs && <Preferences prefs={prefs} setPrefs={setPrefs} onClose={() => setShowPrefs(false)} />}
 
       {/* Header */}
-      <div style={{ padding: "14px 18px 10px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between" }}>
+      <div style={{ padding: isMobile ? "10px 10px 8px" : "14px 18px 10px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
           <div style={{ width: 24, height: 24, borderRadius: 5, background: "linear-gradient(135deg, #ff3366, #6644ff)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>◉</div>
           <div>
@@ -237,41 +239,43 @@ export default function MixAnalyzer() {
           </div>
         </div>
         <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-          <div
-            onMouseEnter={() => setZoomHover(true)}
-            onMouseLeave={() => setZoomHover(false)}
-            style={{
-              display: "flex", alignItems: "center", gap: 6,
-              background: T.card, border: `1px solid ${T.border}`, borderRadius: 4,
-              padding: "3px 8px", height: 20, fontSize: 8, fontFamily: T.mono, color: T.sub,
-              overflow: "hidden",
-              width: zoomHover ? 160 : 48,
-              transition: "width 180ms ease",
-              cursor: "pointer",
-            }}
-          >
-            <span style={{ flexShrink: 0, minWidth: 26 }}>{uiZoom.toFixed(2)}×</span>
-            <input
-              type="range"
-              min={ZOOM_MIN}
-              max={ZOOM_MAX}
-              step={0.01}
-              value={uiZoom}
-              onChange={e => setZoomValue(+e.target.value)}
-              onDoubleClick={() => setZoomValue(1)}
+          {!isMobile && (
+            <div
+              onMouseEnter={() => setZoomHover(true)}
+              onMouseLeave={() => setZoomHover(false)}
               style={{
-                flex: 1, height: 3, accentColor: T.accent,
-                opacity: zoomHover ? 1 : 0,
-                transition: "opacity 120ms ease",
-                cursor: "pointer", minWidth: 0,
+                display: "flex", alignItems: "center", gap: 6,
+                background: T.card, border: `1px solid ${T.border}`, borderRadius: 4,
+                padding: "3px 8px", height: 20, fontSize: 8, fontFamily: T.mono, color: T.sub,
+                overflow: "hidden",
+                width: zoomHover ? 160 : 48,
+                transition: "width 180ms ease",
+                cursor: "pointer",
               }}
-            />
-          </div>
+            >
+              <span style={{ flexShrink: 0, minWidth: 26 }}>{uiZoom.toFixed(2)}×</span>
+              <input
+                type="range"
+                min={ZOOM_MIN}
+                max={ZOOM_MAX}
+                step={0.01}
+                value={uiZoom}
+                onChange={e => setZoomValue(+e.target.value)}
+                onDoubleClick={() => setZoomValue(1)}
+                style={{
+                  flex: 1, height: 3, accentColor: T.accent,
+                  opacity: zoomHover ? 1 : 0,
+                  transition: "opacity 120ms ease",
+                  cursor: "pointer", minWidth: 0,
+                }}
+              />
+            </div>
+          )}
           <button onClick={() => setShowPrefs(true)} style={{ background: T.card, color: T.sub, border: `1px solid ${T.border}`, borderRadius: 4, padding: "4px 9px", fontSize: 8, cursor: "pointer", fontFamily: T.mono }}>⚙</button>
         </div>
       </div>
 
-      <div style={{ zoom: uiZoom * 0.75 }}>
+      <div style={{ zoom: isMobile ? 1 : uiZoom * 0.75 }}>
 
       {/* Drop zone */}
       {!stems.length && !analyzing && (
@@ -293,7 +297,7 @@ export default function MixAnalyzer() {
       )}
 
       {stems.length > 0 && !analyzing && (
-        <div style={{ padding: "0 18px 18px" }}>
+        <div style={{ padding: isMobile ? "0 8px 12px" : "0 18px 18px" }}>
           {/* Toolbar */}
           <div style={{ display: "flex", gap: 4, padding: "7px 0", flexWrap: "wrap", alignItems: "center" }}>
             <button onClick={() => fileRef.current?.click()} style={{ background: T.card, color: "#7766bb", border: `1px solid ${T.border}`, borderRadius: 3, padding: "3px 7px", fontSize: 8, cursor: "pointer", fontFamily: T.mono }}>+ Add</button>

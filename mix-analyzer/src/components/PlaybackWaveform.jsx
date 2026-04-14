@@ -3,6 +3,7 @@ import { THEME } from '../theme.js';
 import { BANDS_3 } from '../constants.js';
 import { fft } from '../dsp/fft.js';
 import { drawLiveSpec, drawWaveCanvas, drawOverlay, drawVectorscope, drawLufsMeter, drawPhaseMeter, drawDBMeter, resetLufsState, resetDBMeterState, resetHeatmapBuf } from '../canvas/drawers.js';
+import { useIsMobile } from '../hooks/useIsMobile.js';
 
 // Minimal IIR biquad used for scrub-mode per-band phase computation
 function applyBiquad(src, b0, b1, b2, a1, a2) {
@@ -104,6 +105,7 @@ const fmt = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2,
    ════════════════════════════════════════════════════ */
 
 export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, setPrefs, bpm, keyData }) {
+  const isMobile = useIsMobile();
   const [playing, setPlaying] = useState(false);
   const [position, setPositionState] = useState(0);
   const [zoom, setZoom] = useState(1);        // continuous zoom 1..32
@@ -388,16 +390,16 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
   // Fix 3 (corrected): throttle only the FFT+draw, not the overlay — overlay stays at full mouse rate
   useEffect(() => {
     let lastScrubT = 0;
-    const onMove = (e) => {
+    const scrubTo = (clientX) => {
       if (!isDraggingRef.current || !buffer) return;
       const canvas = overlayCanvasRef.current;
       if (!canvas) return;
       const rect = canvas.getBoundingClientRect();
-      const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
       const visibleFrac = 1 / zoomRef.current;
       const startFrac = Math.min(scrollPctRef.current, 1 - visibleFrac);
       const newPos = (startFrac + pct * visibleFrac) * duration;
-      // Overlay + time display: always at full mouse rate
+      // Overlay + time display: always at full input rate
       positionRef.current = newPos;
       if (timeDisplayRef.current) timeDisplayRef.current.textContent = `${fmt(newPos)} / ${fmt(duration)}`;
       drawOverlay(overlayCanvasRef.current, newPos, duration, zoomRef.current, scrollPctRef.current);
@@ -412,6 +414,7 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
         drawPhaseMeter(phaseCanvasRef.current, null, scrubDataRef.current?.scrubPhaseCorr ?? null);
       }
     };
+    const onMove = (e) => scrubTo(e.clientX);
     const onUp = () => {
       if (!isDraggingRef.current) return;
       isDraggingRef.current = false;
@@ -419,9 +422,25 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
       // Fix 1: use ref — avoids playFrom in dep array, prevents listener re-bind on every playFrom identity change
       if (playingRef.current) playFromRef.current?.(positionRef.current);
     };
+    const onTouchMove = (e) => {
+      if (!isDraggingRef.current) return;
+      if (e.touches.length !== 1) return; // pinch handler owns 2-finger gestures
+      e.preventDefault();
+      scrubTo(e.touches[0].clientX);
+    };
+    const onTouchEnd = () => onUp();
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
-    return () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+    document.addEventListener('touchmove', onTouchMove, { passive: false });
+    document.addEventListener('touchend', onTouchEnd);
+    document.addEventListener('touchcancel', onTouchEnd);
+    return () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('touchmove', onTouchMove);
+      document.removeEventListener('touchend', onTouchEnd);
+      document.removeEventListener('touchcancel', onTouchEnd);
+    };
   }, [buffer, duration]); // playFrom removed from deps — accessed via playFromRef
   const toggle = useCallback(() => {
     if (playingRef.current) killSource(); else playFrom(positionRef.current);
@@ -439,11 +458,7 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
     else { positionRef.current = newPos; setPositionState(newPos); drawOverlay(overlayCanvasRef.current, newPos, duration, zoomRef.current, scrollPctRef.current); }
   }, [duration, playFrom]);
 
-  const handleWheelZoom = useCallback((e) => {
-    e.preventDefault();
-    const rect = e.currentTarget.getBoundingClientRect();
-    const cursorPct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const factor = e.deltaY < 0 ? 1.18 : 1 / 1.18;
+  const applyZoomAtCursor = useCallback((factor, cursorPct) => {
     setZoom(prev => {
       const newZoom = Math.max(1, Math.min(32, prev * factor));
       zoomRef.current = newZoom;
@@ -451,7 +466,7 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
         scrollPctRef.current = 0;
         setScrollPct(0);
       } else {
-        // Anchor: cursor's song-time fraction stays fixed under the mouse
+        // Anchor: cursor's song-time fraction stays fixed under the cursor
         const oldVisibleFrac = 1 / prev;
         const oldStart = Math.min(scrollPctRef.current, 1 - oldVisibleFrac);
         const cursorTimeFrac = oldStart + cursorPct * oldVisibleFrac;
@@ -464,6 +479,14 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
     });
   }, []);
 
+  const handleWheelZoom = useCallback((e) => {
+    e.preventDefault();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const cursorPct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const factor = e.deltaY < 0 ? 1.18 : 1 / 1.18;
+    applyZoomAtCursor(factor, cursorPct);
+  }, [applyZoomAtCursor]);
+
   // Wheel zoom: passive:false required so preventDefault() stops page scroll.
   // React's synthetic onWheel is passive by default in modern browsers.
   useEffect(() => {
@@ -473,6 +496,53 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
     el.addEventListener('wheel', handler, { passive: false });
     return () => el.removeEventListener('wheel', handler);
   }, [handleWheelZoom]);
+
+  // Pinch-to-zoom (mobile): two-finger gesture on the waveform container.
+  // Uses the same applyZoomAtCursor path as wheel, so behaviour is identical.
+  useEffect(() => {
+    const el = waveContainerRef.current;
+    if (!el) return;
+    let pinchDist = 0;
+    let pinchActive = false;
+    const onStart = (e) => {
+      if (e.touches.length === 2) {
+        pinchActive = true;
+        // Cancel any in-flight scrub so the fingers only drive zoom
+        isDraggingRef.current = false;
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        pinchDist = Math.hypot(dx, dy);
+        e.preventDefault();
+      }
+    };
+    const onMove = (e) => {
+      if (!pinchActive || e.touches.length !== 2) return;
+      e.preventDefault();
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const newDist = Math.hypot(dx, dy);
+      if (pinchDist <= 0) { pinchDist = newDist; return; }
+      const rect = el.getBoundingClientRect();
+      const midX = (e.touches[0].clientX + e.touches[1].clientX) * 0.5;
+      const cursorPct = Math.max(0, Math.min(1, (midX - rect.left) / rect.width));
+      const factor = newDist / pinchDist;
+      pinchDist = newDist;
+      applyZoomAtCursor(factor, cursorPct);
+    };
+    const onEnd = (e) => {
+      if (e.touches.length < 2) { pinchActive = false; pinchDist = 0; }
+    };
+    el.addEventListener('touchstart', onStart, { passive: false });
+    el.addEventListener('touchmove', onMove, { passive: false });
+    el.addEventListener('touchend', onEnd);
+    el.addEventListener('touchcancel', onEnd);
+    return () => {
+      el.removeEventListener('touchstart', onStart);
+      el.removeEventListener('touchmove', onMove);
+      el.removeEventListener('touchend', onEnd);
+      el.removeEventListener('touchcancel', onEnd);
+    };
+  }, [applyZoomAtCursor]);
 
   // Redraw waveform + live-spec on browser window resize (canvas CSS width:"100%" reflows).
   // rAF defers until layout has settled so getBoundingClientRect() returns correct dims.
@@ -650,9 +720,9 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
       </div>
 
       {/* Live Spectrum + Phase Meter + LUFS Meter (PROJECT.md layout) */}
-      <div style={{ display: "flex", gap: 0, borderRadius: "7px 7px 0 0", overflow: "hidden" }}>
+      <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 0, borderRadius: "7px 7px 0 0", overflow: "hidden" }}>
         {/* Live Spectrum (left) */}
-        <div style={{ flex: 1, background: "#080812" }}>
+        <div style={{ flex: 1, background: "#080812", minWidth: 0 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 8px 0" }}>
             <span style={{ fontSize: 8, color: THEME.dim, fontFamily: THEME.mono, letterSpacing: 1.5 }}>
               LIVE SPECTRUM {playing ? <span style={{ color: "#ff3366" }}>●</span> : <span style={{ color: THEME.dim }}>○</span>}
@@ -703,42 +773,48 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
           <canvas ref={liveSpecCanvasRef} style={{ display: "block", width: "100%", height: LSH }} />
         </div>
 
-        {/* Drag handle */}
-        <div onMouseDown={e => startResize(e, 'phase', panelW.phase)}
-          style={{ width: 4, cursor: 'col-resize', background: 'transparent', flexShrink: 0 }}
-          onMouseEnter={e => e.currentTarget.style.background = '#2a2a44'}
-          onMouseLeave={e => e.currentTarget.style.background = 'transparent'} />
+        {/* Drag handle (desktop only — too fiddly on touch) */}
+        {!isMobile && (
+          <div onMouseDown={e => startResize(e, 'phase', panelW.phase)}
+            style={{ width: 4, cursor: 'col-resize', background: 'transparent', flexShrink: 0 }}
+            onMouseEnter={e => e.currentTarget.style.background = '#2a2a44'}
+            onMouseLeave={e => e.currentTarget.style.background = 'transparent'} />
+        )}
 
         {/* 3-Band Phase Meter */}
-        <div style={{ width: panelW.phase, flexShrink: 0, background: "#080812" }}>
+        <div style={{ width: isMobile ? "100%" : panelW.phase, flexShrink: 0, background: "#080812" }}>
           <div style={{ padding: "4px 6px 0" }}>
             <span style={{ fontSize: 7, color: THEME.dim, fontFamily: THEME.mono, letterSpacing: 1 }}>PHASE</span>
           </div>
           <canvas ref={phaseCanvasRef} style={{ display: "block", width: "100%", height: LSH }} />
         </div>
 
-        {/* Drag handle */}
-        <div onMouseDown={e => startResize(e, 'vs', panelW.vs)}
-          style={{ width: 4, cursor: 'col-resize', background: 'transparent', flexShrink: 0 }}
-          onMouseEnter={e => e.currentTarget.style.background = '#2a2a44'}
-          onMouseLeave={e => e.currentTarget.style.background = 'transparent'} />
+        {/* Drag handle (desktop only) */}
+        {!isMobile && (
+          <div onMouseDown={e => startResize(e, 'vs', panelW.vs)}
+            style={{ width: 4, cursor: 'col-resize', background: 'transparent', flexShrink: 0 }}
+            onMouseEnter={e => e.currentTarget.style.background = '#2a2a44'}
+            onMouseLeave={e => e.currentTarget.style.background = 'transparent'} />
+        )}
 
         {/* Live Vectorscope */}
-        <div style={{ width: panelW.vs, flexShrink: 0, background: "#080812" }}>
+        <div style={{ width: isMobile ? "100%" : panelW.vs, flexShrink: 0, background: "#080812" }}>
           <div style={{ padding: "4px 6px 0" }}>
             <span style={{ fontSize: 7, color: THEME.dim, fontFamily: THEME.mono, letterSpacing: 1 }}>VECTOR</span>
           </div>
           <canvas ref={vsCanvasRef} style={{ display: "block", width: "100%", height: LSH }} />
         </div>
 
-        {/* Drag handle */}
-        <div onMouseDown={e => startResize(e, 'lufs', panelW.lufs)}
-          style={{ width: 4, cursor: 'col-resize', background: 'transparent', flexShrink: 0 }}
-          onMouseEnter={e => e.currentTarget.style.background = '#2a2a44'}
-          onMouseLeave={e => e.currentTarget.style.background = 'transparent'} />
+        {/* Drag handle (desktop only) */}
+        {!isMobile && (
+          <div onMouseDown={e => startResize(e, 'lufs', panelW.lufs)}
+            style={{ width: 4, cursor: 'col-resize', background: 'transparent', flexShrink: 0 }}
+            onMouseEnter={e => e.currentTarget.style.background = '#2a2a44'}
+            onMouseLeave={e => e.currentTarget.style.background = 'transparent'} />
+        )}
 
         {/* LUFS Meter */}
-        <div style={{ width: panelW.lufs, flexShrink: 0, background: "#080812" }}>
+        <div style={{ width: isMobile ? "100%" : panelW.lufs, flexShrink: 0, background: "#080812" }}>
           <div style={{ padding: "4px 6px 0" }}>
             <span style={{ fontSize: 7, color: THEME.dim, fontFamily: THEME.mono, letterSpacing: 1 }}>LUFS</span>
           </div>
@@ -746,11 +822,13 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
         </div>
       </div>
 
-      {/* Row resize handle — meters ↕ */}
-      <div onMouseDown={e => startVResize(e, setMeterH, meterH, 50, 300, 'meterH')}
-        style={{ height: 4, cursor: 'row-resize', background: 'transparent' }}
-        onMouseEnter={e => e.currentTarget.style.background = '#2a2a44'}
-        onMouseLeave={e => e.currentTarget.style.background = 'transparent'} />
+      {/* Row resize handle — meters ↕ (desktop only) */}
+      {!isMobile && (
+        <div onMouseDown={e => startVResize(e, setMeterH, meterH, 50, 300, 'meterH')}
+          style={{ height: 4, cursor: 'row-resize', background: 'transparent' }}
+          onMouseEnter={e => e.currentTarget.style.background = '#2a2a44'}
+          onMouseLeave={e => e.currentTarget.style.background = 'transparent'} />
+      )}
 
       {/* Canvas Waveform with playhead overlay */}
       <div style={{ background: "#080812", borderRadius: "0 0 7px 7px", borderTop: "1px solid #111122" }}>
@@ -784,7 +862,7 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
           {/* dB Peak Meter — L/R bars */}
           <canvas ref={dbMeterCanvasRef} style={{ display: "block", width: 28, height: H, flexShrink: 0 }} />
           {/* Waveform + overlay */}
-          <div ref={waveContainerRef} style={{ flex: 1, position: "relative", cursor: "pointer" }}
+          <div ref={waveContainerRef} style={{ flex: 1, position: "relative", cursor: "pointer", touchAction: "none" }}
             onMouseDown={e => {
               const rect = e.currentTarget.getBoundingClientRect();
               if (zoom > 1 && e.clientY > rect.bottom - 8) { handleScrollDrag(e); return; }
@@ -792,6 +870,24 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
               document.body.style.cursor = 'col-resize';
               if (playingRef.current) killSource();
               seek(e);
+            }}
+            onTouchStart={e => {
+              if (e.touches.length !== 1) return; // pinch handler owns multi-touch
+              const t = e.touches[0];
+              const rect = e.currentTarget.getBoundingClientRect();
+              // Bottom 8px = mini-map scroll strip (only when zoomed in)
+              if (zoom > 1 && t.clientY > rect.bottom - 8) {
+                const pct = Math.max(0, Math.min(1, (t.clientX - rect.left) / rect.width));
+                const visibleFrac = 1 / zoom;
+                const newScroll = Math.max(0, Math.min(1 - visibleFrac, pct - visibleFrac / 2));
+                scrollPctRef.current = newScroll;
+                setScrollPct(newScroll);
+                return;
+              }
+              isDraggingRef.current = true;
+              if (playingRef.current) killSource();
+              // Seek to tap position (synthesize clientX for the existing seek helper)
+              seek({ clientX: t.clientX, currentTarget: e.currentTarget });
             }}
           >
             <canvas ref={waveCanvasRef} style={{ display: "block", width: "100%", height: H }} />
@@ -802,11 +898,13 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
         </div>
       </div>
 
-      {/* Row resize handle — waveform ↕ */}
-      <div onMouseDown={e => startVResize(e, setWaveH, waveH, 60, 400, 'waveH')}
-        style={{ height: 4, cursor: 'row-resize', background: 'transparent' }}
-        onMouseEnter={e => e.currentTarget.style.background = '#2a2a44'}
-        onMouseLeave={e => e.currentTarget.style.background = 'transparent'} />
+      {/* Row resize handle — waveform ↕ (desktop only) */}
+      {!isMobile && (
+        <div onMouseDown={e => startVResize(e, setWaveH, waveH, 60, 400, 'waveH')}
+          style={{ height: 4, cursor: 'row-resize', background: 'transparent' }}
+          onMouseEnter={e => e.currentTarget.style.background = '#2a2a44'}
+          onMouseLeave={e => e.currentTarget.style.background = 'transparent'} />
+      )}
     </div>
   );
 }
