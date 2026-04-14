@@ -1,62 +1,151 @@
-# Mix Analyzer — Session Handoff
+# Mix Analyzer — Phase 7 Handoff
 
-## Branch
-`feature/phase7-prep` — 0 ESLint errors, clean production build.
-Dev server: `npm run dev` → http://localhost:5173/MixAnalyzer/ (or :5174 if port busy)
+Last updated: 2026-04-13  
+Branch: `feature/phase7-prep` (merged into `main`)  
+Dev server: `npm run dev` → http://localhost:5173/MixAnalyzer/ (or :5174/:5178 if port busy)  
+Build: clean, 0 ESLint errors.
 
-## What Was Done This Session
+---
 
-### Playback / UX
-- **Spacebar**: global `keydown` listener via `toggleRef` (stable ref pattern, guards against input/textarea/select)
-- **Continuous zoom**: scroll wheel on waveform, 1×–32×, cursor-anchored. Replaced discrete 1/2/4/8× buttons with live `1.0×` readout + RESET. Beat grid adapts: bar→beat→8th→16th lines appear as you zoom in.
-- **Scroll wheel fix**: React's synthetic `onWheel` is passive — attached imperatively with `{ passive: false }` via `useEffect` so `preventDefault()` actually stops page scroll.
+## What Phase 7 Is
 
-### Resizable Panels
-- Drag handles (`cursor: col-resize`) between SPEC / PHASE / VECTOR / LUFS panels
-- `panelW` state `{phase, vs, lufs}` — closure-based resize (no extra refs), delta negated because all fixed panels are right-of-handle (SPEC is flex-grow:1 on left)
-- Min 55px, max 400px per panel
+Python backend + AI-powered feedback. The front-end infrastructure is already stubbed out. The main work is building the FastAPI backend and wiring the Tier 3 Claude API feedback path.
 
-### Canvas Resize-on-Resize
-- **Problem**: when paused, RAF loop is stopped, so canvases squish/stretch on resize with no redraw
-- **Fix 1**: `ResizeObserver` on `waveCanvasRef` with `requestAnimationFrame` defer — covers browser window resize for waveform + live spec
-- **Fix 2**: `useEffect([panelW])` with `requestAnimationFrame` — covers panel drag resize for phase/vector/LUFS/live-spec
+Phase 7 tasks from tracker:
 
-### Vectorscope
-- Always centered in its panel regardless of aspect ratio
-- **Wide mode** (W > H × 1.1): anchor point at bottom-center → only M>0 half visible (matches pro hardware scopes)
-- `radius` and `cy` computed from canvas dimensions each frame
+| # | Task | Status |
+|---|------|--------|
+| P7.1 | FastAPI local server scaffold | ⬜ |
+| P7.2 | `src/api/client.js` — tier chain abstraction | ✅ Done |
+| P7.3 | `.env` with `VITE_API_URL`, env-based toggle | ✅ Done |
+| P7.4 | Tier 3: Claude API → structured JSON → natural language advice | ⬜ |
+| P7.5 | yt-dlp integration — SoundCloud/YouTube download endpoint | ⬜ |
+| P7.6 | CLAP embeddings → genre detection | ⬜ |
+| P7.7 | Demucs stem separation endpoint | ⬜ |
+| P7.8 | Tier 1 feedback engine: expand 15 → 50+ rules | ⬜ |
 
-### Scrub Live Meters
-- `computeScrubData` now returns `lSlice`, `rSlice` (512 samples), `momentaryDb`
-- `drawVectorscope(canvas, filterBank, scrubVsData)`: new `scrubVsData` path draws wideband monochrome from buffer slice
-- `drawLufsMeter(canvas, analyser, scrubDb)`: new `scrubDb` path draws single bar labeled "SCRUB", skips history
-- Both throttled at 16ms in the drag-scrub `onMove` handler
-- Phase meter still shows empty during scrub (would need band-pass filtering — not worth the cost)
+---
 
-### MetricCard
-- Value font: `clamp(12px, 1.3vw, 20px)` — scales with viewport width
-- Label/sub: `clamp(6px, 0.55vw, 8px)`
-- `flex: "1 1 70px"`, `minWidth: 70` (was 90px)
+## What's Already Built (don't rebuild)
 
-## Current Known Issues / Bugs
-- **Static Vectorscope** (Stereo view, `App.jsx` `Vectorscope` component): still SVG with 5000 `<circle>` elements — needs Canvas migration (was interrupted mid-session)
-- **Phase meter during scrub**: empty state (would need per-band BiquadFilter pass on buffer slice)
-- **LUFS short-term**: rolling 3s window at 60fps, not true max across full track
+### Front-end stubs (fully wired)
 
-## Tracker
-- Excel: `mix-analyzer-tracker.xlsx` — tasks #86–91 added this session, #78 updated (zoom)
-- Want items: #84 (multi-BPM windowed detection), #85 (interactive parametric EQ on spectrum)
+**`src/api/client.js`** — unified `generateFeedback(analysisData, prefs, options)`:
+- `options.tier = 3` → POSTs to `VITE_API_URL/feedback` with the full analysis JSON
+- Falls back to Tier 1 on any error
+- `options.apiKey` → sent as `Authorization: Bearer` header
+- `options.apiUrl` → overrides env URL per-call
 
-## Likely Next Steps
-1. **Static Vectorscope Canvas migration** — convert `Vectorscope` in `App.jsx` from SVG circles to Canvas (same drawing logic as live vectorscope in PlaybackWaveform)
-2. **Phase 7 infrastructure** — `src/api/client.js`, `.env` with `VITE_API_URL`, async feedback tier chain, FastAPI scaffold
-3. **Multi-BPM** (#84) — windowed 20s autocorrelation, segment labels on waveform
-4. **Interactive EQ** (#85) — draggable nodes on SpectrumDisplay, BiquadFilter in signal chain
+**`src/workers/analyzeWorker.js`** — full DSP pipeline off main thread:
+- Receives `{ channelData, sampleRate, duration, prefs }` via postMessage
+- Returns complete analysis object (same shape as synchronous `analyze()`)
+- Uses `type: 'module'` — Vite bundles it correctly
+- Called via `analyzeAsync()` in `src/analysis/analyze.js`
 
-## Key Files
-- `src/components/PlaybackWaveform.jsx` — all playback, canvas drawing, scrub, zoom, resize
-- `src/components/SpectrumDisplay.jsx` — static FFT spectrum + genre curve + ref overlay
-- `src/components/MetricCard.jsx` — responsive metric display
-- `src/App.jsx` — layout, file loading, ref track, view switching
-- `src/analysis/analyze.js` — DSP orchestration (`_prefs` param reserved for Phase 7)
-- `src/dsp/` — FFT, LUFS, True Peak, Spectrum, Stereo, Key, BPM worker
+**`.env.example`**:
+```
+VITE_API_URL=http://localhost:8000
+```
+
+### Analysis object shape (what the backend receives / Tier 1 consumes)
+```js
+{
+  lufs: { integrated, shortTerm, momentary, truePeak, dr },
+  stereo: { low, mid, high },          // Pearson correlation per band
+  spectrum: { curve, bands7, bands3 }, // dB values
+  bpm: Number,
+  key: String,
+  genre: String,                        // from prefs
+  duration: Number,
+  prefs: { lufsTarget, tpCeiling, genre, ... }
+}
+```
+
+---
+
+## Architecture Overview
+
+```
+src/
+  App.jsx                    # Layout, file load, view switching, UI zoom (1×–2.5×)
+  analysis/
+    analyze.js               # analyzeAsync() → Worker; analyze() → synchronous fallback
+    feedback.js              # Tier 1: ~15 rules today, target 50+
+    genres.js                # GENRE_CURVES, interpolation, GENRE_TARGETS
+  api/
+    client.js                # Tier chain: 3 → 1 fallback
+  canvas/
+    drawers.js               # All canvas draw functions (no React deps)
+  components/
+    PlaybackWaveform.jsx     # Playback, RAF loop, scrub, zoom, resize — 748 lines
+    SpectrumDisplay.jsx      # Static FFT spectrum + genre curve + ref overlay (Canvas)
+    StereoDisplay3Band.jsx   # 3-band stereo bars
+    Preferences.jsx          # Settings panel
+    MetricCard.jsx / BandBar.jsx / FeedbackItem.jsx
+  dsp/
+    fft.js / lufs.js / truepeak.js / spectrum.js / stereo.js / bpm.js / key.js
+    sharedFFT.js             # 2400-frame waveform + high-res zoom frames
+    bpmWorker.js             # BPM autocorrelation Worker
+  workers/
+    analyzeWorker.js         # Full DSP Worker
+  constants.js / theme.js
+```
+
+---
+
+## Recent Fixes (this session — already committed)
+
+- **M/S live spectrum**: was computing M/S from magnitude spectra (wrong — discards phase). Fixed to use `getFloatTimeDomainData`, compute `Mid=(L+R)/2` and `Side=(L-R)/2` in time domain, Hann window, FFT each independently, then magnitude. Mid and Side now show distinct correct curves.
+- **M/S during scrub**: `computeScrubData` now returns `dataS` (Side FFT). `drawLiveSpec` `hasMS` guard updated to fire when `scrubData.dataS` exists. Both Mid+Side curves render during drag-scrub in M/S mode.
+- **Panel info preserved on resize**: ResizeObserver and panelW useEffect now pass `scrubDataRef.current` to all meter draw calls — meters no longer blank when resizing while paused mid-scrub.
+- **UI zoom cycle**: 1×/1.5×/2×/2.5× button in header, persisted in localStorage, CSS `zoom` on root div.
+
+---
+
+## Known Limitations (not blocking Phase 7)
+
+- **LUFS short-term**: rolling 3s window, not true max across track
+- **True Peak**: Catmull-Rom 4× approximation, not ITU FIR
+- **Tier 2** (Ollama): not yet implemented — fallback goes 3 → 1 directly
+
+---
+
+## Phase 7 Starting Point: P7.1 + P7.4
+
+The highest-value tasks to do first:
+
+### P7.1 — FastAPI scaffold
+
+Create `backend/` at the repo root:
+```
+backend/
+  main.py          # FastAPI app, CORS, /feedback endpoint, /health
+  requirements.txt # fastapi, uvicorn, anthropic, python-dotenv
+  .env             # ANTHROPIC_API_KEY
+```
+
+`/feedback` endpoint:
+- Receives: `{ analysis: { lufs, stereo, spectrum, bpm, key, genre, ... } }`
+- Returns: `{ items: [{ type, title, body, severity }] }`
+- Calls Claude API (claude-sonnet-4-6) with structured prompt
+
+### P7.4 — Claude API prompt
+
+Input to Claude: the full analysis JSON.  
+Output expected: array of feedback items matching Tier 1 shape:
+```js
+[{ type: "warning"|"tip"|"info", title: String, body: String, severity: 1|2|3 }]
+```
+
+System prompt should instruct Claude to act as an EDM mixing engineer (FL Studio context), reference specific dB values from the analysis, and return valid JSON only.
+
+---
+
+## Key Rules (from CLAUDE.md — must follow)
+
+1. Read before editing — never edit from memory
+2. No full rewrites of files over 50 lines — surgical edits only
+3. DSP math is non-negotiable — preserve biquad coefficients, FFT indexing exactly
+4. Canvas: always multiply by `devicePixelRatio` — never set `canvas.width` without DPR
+5. No new npm dependencies without explicit approval
+6. Module purity: `src/dsp/` functions must stay stateless, no React/DOM imports
