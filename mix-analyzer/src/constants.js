@@ -29,6 +29,8 @@ export const DEFAULT_PREFS = {
   specMs: false,        // M/S toggle (works in any live spec mode)
   volume: 1.0,          // 0..1 gain
   monoPreview: false,   // sum L+R to mono
+  feedbackTier: 1,      // 1 = offline template engine; 3 = Claude API (backend /feedback)
+  apiKey: "",           // optional — sent as Bearer header, overrides backend env key
 };
 
 // Per-genre colors for target curve overlay

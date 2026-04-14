@@ -1,5 +1,5 @@
 import { THEME } from '../theme.js';
-import { DEFAULT_PREFS, GENRE_COLORS } from '../constants.js';
+import { DEFAULT_PREFS } from '../constants.js';
 import { GENRE_TARGETS } from '../analysis/genres.js';
 
 function PrefSlider({ label, k, min, max, step, unit, prefs, update }) {
@@ -15,6 +15,11 @@ function PrefSlider({ label, k, min, max, step, unit, prefs, update }) {
 
 export function Preferences({ prefs, setPrefs, onClose }) {
   const update = (key, val) => setPrefs(p => ({ ...p, [key]: val }));
+  const updateApiKey = (val) => {
+    setPrefs(p => ({ ...p, apiKey: val }));
+    if (val) localStorage.setItem('anthropicApiKey', val);
+    else localStorage.removeItem('anthropicApiKey');
+  };
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "#000a", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
@@ -47,6 +52,53 @@ export function Preferences({ prefs, setPrefs, onClose }) {
               <input type="checkbox" checked={prefs[k]} onChange={e => update(k, e.target.checked)} style={{ accentColor: THEME.accent }} />{n}
             </label>
           ))}
+        </div>
+
+        {/* Feedback engine */}
+        <div style={{ marginTop: 12 }}>
+          <div style={{ fontSize: 8, color: THEME.sub, fontFamily: THEME.mono, marginBottom: 3 }}>Feedback Engine</div>
+          <div style={{ display: "flex", gap: 4 }}>
+            {[[1, "OFFLINE"], [3, "CLOUD (AI)"]].map(([tier, label]) => {
+              const active = prefs.feedbackTier === tier;
+              return (
+                <button key={tier} onClick={() => update("feedbackTier", tier)} style={{
+                  flex: 1, padding: "5px 6px",
+                  background: active ? THEME.accent : THEME.card,
+                  color: active ? THEME.bg : THEME.sub,
+                  border: `1px solid ${active ? THEME.accent : THEME.border}`,
+                  borderRadius: 4, fontSize: 8, fontFamily: THEME.mono, fontWeight: 700,
+                  cursor: "pointer", letterSpacing: 0.5,
+                }}>{label}</button>
+              );
+            })}
+          </div>
+          {prefs.feedbackTier === 3 && (
+            <>
+              <div style={{ fontSize: 7, color: THEME.dim, fontFamily: THEME.mono, marginTop: 4, lineHeight: 1.4 }}>
+                Backend at <code>{import.meta.env.VITE_API_URL || 'http://localhost:8000'}</code>. Key below overrides backend env. Falls back to OFFLINE on error.
+              </div>
+              <div style={{ marginTop: 6 }}>
+                <div style={{ fontSize: 8, color: THEME.sub, fontFamily: THEME.mono, marginBottom: 2 }}>Anthropic API Key (optional)</div>
+                <input
+                  type="password"
+                  value={prefs.apiKey || ''}
+                  onChange={e => updateApiKey(e.target.value)}
+                  placeholder="sk-ant-..."
+                  autoComplete="off"
+                  spellCheck={false}
+                  style={{
+                    width: "100%", background: THEME.card, color: THEME.text,
+                    border: `1px solid ${THEME.border}`, borderRadius: 4,
+                    padding: "5px 8px", fontSize: 10, fontFamily: THEME.mono,
+                    outline: "none", boxSizing: "border-box",
+                  }}
+                />
+                <div style={{ fontSize: 7, color: THEME.dim, fontFamily: THEME.mono, marginTop: 3, lineHeight: 1.4 }}>
+                  Saved to browser localStorage. Leave blank to use the backend's ANTHROPIC_API_KEY.
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         <button onClick={() => setPrefs(DEFAULT_PREFS)} style={{

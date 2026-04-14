@@ -42,10 +42,10 @@ Phases 1–6.9 complete. Phase 7 in progress.
 
 | # | Task | Component | Status |
 |---|------|-----------|--------|
-| P7.1 | FastAPI local server scaffold | Python `backend/` | ⬜ |
+| P7.1 | FastAPI local server scaffold | Python `backend/` | ✅ |
 | P7.2 | `src/api/client.js` — feedback tier chain abstraction | `src/api/` | ✅ |
 | P7.3 | `.env` with `VITE_API_URL`, env-based API toggle | Build config | ✅ |
-| P7.4 | Tier 3: Claude API call — structured analysis JSON → natural language advice | `src/analysis/feedback.js` | ⬜ |
+| P7.4 | Tier 3: Claude API call — structured analysis JSON → natural language advice | `backend/main.py` | ✅ |
 | P7.5 | yt-dlp integration — SoundCloud/YouTube download endpoint | Python backend | ⬜ |
 | P7.6 | CLAP embeddings → genre detection | Python backend | ⬜ |
 | P7.7 | Demucs stem separation endpoint | Python backend | ⬜ |
@@ -55,7 +55,7 @@ Phases 1–6.9 complete. Phase 7 in progress.
 
 **P7.2/P7.3** — `generateFeedback(data, options)` in `feedback.js` already has `_prefs` reserved in `analyze()`. Wire tier selection: Tier 3 → Tier 2 → Tier 1 fallback. Options include `{tier, apiKey, ollamaModel}`.
 
-**P7.4** — Claude API (claude-sonnet-4-6). Input: structured JSON with LUFS, peak, stereo, spectral bands, genre, BPM, key. Output: markdown mixing advice. Cache analysis hash to avoid redundant calls.
+**P7.4** — Claude API (`claude-opus-4-6`, overridable via `MIX_ANALYZER_MODEL`). `POST /feedback` receives full analysis JSON, sanitizes to scalars + summary bands, prompts Claude with an EDM/FL Studio system prompt, and returns an array of `{type, category, message, tip}` matching Tier 1. Adaptive thinking + cache_control on the system prompt. Response schema validated with Pydantic before returning; schema/API failures bubble up as 502 so the front-end falls through to Tier 1.
 
 **P7.8** — Current `feedback.js` has ~15 rules. Target 50–100 covering: transient preservation, mid-side correlation per genre, sub clarity vs kick, high-frequency air, crest factor context, dynamic range by genre.
 

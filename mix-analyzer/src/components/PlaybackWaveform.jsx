@@ -104,6 +104,14 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
   const [scrollPct, setScrollPct] = useState(0); // 0..1, fraction of total duration at left edge
   const [bandMutes, setBandMutes] = useState([false, false, false]); // P6-C: LOW/MID/HIGH output mute
   const [panelW, setPanelW] = useState({ phase: 150, vs: 90, lufs: 90 }); // resizable meter panels
+  const [meterH, setMeterH] = useState(() => {
+    const v = parseInt(localStorage.getItem('meterH') || '90', 10);
+    return isFinite(v) ? Math.max(50, Math.min(300, v)) : 90;
+  });
+  const [waveH, setWaveH] = useState(() => {
+    const v = parseInt(localStorage.getItem('waveH') || '120', 10);
+    return isFinite(v) ? Math.max(60, Math.min(400, v)) : 120;
+  });
   const bandMutesRef = useRef([false, false, false]);
   const bandOutGainsRef = useRef(null); // [[gainL, gainR], [gainL, gainR], [gainL, gainR]]
   const playFromRef = useRef(null); // Fix 1: stable ref so drag useEffect doesn't re-bind on playFrom identity change
@@ -493,7 +501,7 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
       drawDBMeter(dbMeterCanvasRef.current, null, null);
     });
     return () => cancelAnimationFrame(id);
-  }, [panelW]);
+  }, [panelW, meterH, waveH]);
 
   // Drag-to-resize meter panels — closure captures startX+startW, no refs needed
   const startResize = useCallback((e, key, currentW) => {
@@ -513,6 +521,26 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
     document.addEventListener('mouseup', onUp);
   }, []);
 
+  const startVResize = useCallback((e, setter, currentH, min, max, storageKey) => {
+    e.preventDefault();
+    const startY = e.clientY, startH = currentH;
+    document.body.style.cursor = 'row-resize';
+    let last = currentH;
+    const onMove = (me) => {
+      const h = Math.max(min, Math.min(max, startH + (me.clientY - startY)));
+      last = h;
+      setter(h);
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      localStorage.setItem(storageKey, String(last));
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, []);
+
   const handleScrollDrag = useCallback((e) => {
     if (zoom <= 1) return;
     const rect = e.currentTarget.getBoundingClientRect();
@@ -526,7 +554,7 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
 
   if (!buffer || !waveData) return null;
 
-  const H = 120, LSH = 90;
+  const H = waveH, LSH = meterH;
   const isSpectral = prefs.waveMode === "spectral";
   const toggles = prefs.bandToggles;
   const vol = Math.round((prefs.volume ?? 1) * 100);
@@ -694,6 +722,12 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
         </div>
       </div>
 
+      {/* Row resize handle — meters ↕ */}
+      <div onMouseDown={e => startVResize(e, setMeterH, meterH, 50, 300, 'meterH')}
+        style={{ height: 4, cursor: 'row-resize', background: 'transparent' }}
+        onMouseEnter={e => e.currentTarget.style.background = '#2a2a44'}
+        onMouseLeave={e => e.currentTarget.style.background = 'transparent'} />
+
       {/* Canvas Waveform with playhead overlay */}
       <div style={{ background: "#080812", borderRadius: "0 0 7px 7px", borderTop: "1px solid #111122" }}>
         {/* Zoom controls — scroll wheel on waveform for continuous zoom, reset button + indicator here */}
@@ -743,6 +777,12 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
           </div>
         </div>
       </div>
+
+      {/* Row resize handle — waveform ↕ */}
+      <div onMouseDown={e => startVResize(e, setWaveH, waveH, 60, 400, 'waveH')}
+        style={{ height: 4, cursor: 'row-resize', background: 'transparent' }}
+        onMouseEnter={e => e.currentTarget.style.background = '#2a2a44'}
+        onMouseLeave={e => e.currentTarget.style.background = 'transparent'} />
     </div>
   );
 }

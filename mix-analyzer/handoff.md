@@ -15,10 +15,10 @@ Phase 7 tasks from tracker:
 
 | # | Task | Status |
 |---|------|--------|
-| P7.1 | FastAPI local server scaffold | ⬜ |
+| P7.1 | FastAPI local server scaffold | ✅ Done |
 | P7.2 | `src/api/client.js` — tier chain abstraction | ✅ Done |
 | P7.3 | `.env` with `VITE_API_URL`, env-based toggle | ✅ Done |
-| P7.4 | Tier 3: Claude API → structured JSON → natural language advice | ⬜ |
+| P7.4 | Tier 3: Claude API → structured JSON → natural language advice | ✅ Done |
 | P7.5 | yt-dlp integration — SoundCloud/YouTube download endpoint | ⬜ |
 | P7.6 | CLAP embeddings → genre detection | ⬜ |
 | P7.7 | Demucs stem separation endpoint | ⬜ |

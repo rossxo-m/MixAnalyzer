@@ -114,16 +114,23 @@ export default function MixAnalyzer() {
   const [progress, setProgress] = useState("");
   const [activeTab, setActiveTab] = useState(0);
   const [dragOver, setDragOver] = useState(false);
-  const [prefs, setPrefs] = useState(DEFAULT_PREFS);
+  const [prefs, setPrefs] = useState(() => ({
+    ...DEFAULT_PREFS,
+    apiKey: localStorage.getItem('anthropicApiKey') || '',
+  }));
   const [showPrefs, setShowPrefs] = useState(false);
   const [view, setView] = useState("analysis");
-  const ZOOM_STEPS = [1, 1.5, 2, 2.5];
-  const [uiZoom, setUiZoom] = useState(() => parseFloat(localStorage.getItem('uiZoom') || '1'));
-  const cycleZoom = () => setUiZoom(z => {
-    const next = ZOOM_STEPS[(ZOOM_STEPS.indexOf(z) + 1) % ZOOM_STEPS.length];
-    localStorage.setItem('uiZoom', next);
-    return next;
+  const ZOOM_MIN = 0.5, ZOOM_MAX = 2;
+  const [uiZoom, setUiZoom] = useState(() => {
+    const v = parseFloat(localStorage.getItem('uiZoom') || '1');
+    return Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, isFinite(v) ? v : 1));
   });
+  const [zoomHover, setZoomHover] = useState(false);
+  const setZoomValue = (v) => {
+    const clamped = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, v));
+    localStorage.setItem('uiZoom', clamped);
+    setUiZoom(clamped);
+  };
   const [refStem, setRefStem] = useState(null);
   const fileRef = useRef();
   const refFileRef = useRef();
@@ -145,7 +152,7 @@ export default function MixAnalyzer() {
         const audioBuf = await ctx.decodeAudioData(arrayBuf);
         setProgress(`${i + 1}/${files.length}: analyzing ${files[i].name}...`);
         const analysis = await analyzeAsync(audioBuf);
-        const feedback = await generateFeedback(analysis, prefs);
+        const feedback = await generateFeedback(analysis, prefs, { tier: prefs.feedbackTier, apiKey: prefs.apiKey });
         results.push({ name: files[i].name, analysis, feedback });
         bufs.push(audioBuf);
 
@@ -214,7 +221,7 @@ export default function MixAnalyzer() {
   const T = THEME;
 
   return (
-    <div style={{ minHeight: "100vh", background: T.bg, color: T.text, fontFamily: T.sans, zoom: uiZoom }}>
+    <div style={{ minHeight: "100vh", background: T.bg, color: T.text, fontFamily: T.sans }}>
       <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
       {showPrefs && <Preferences prefs={prefs} setPrefs={setPrefs} onClose={() => setShowPrefs(false)} />}
 
@@ -230,10 +237,41 @@ export default function MixAnalyzer() {
           </div>
         </div>
         <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-          <button onClick={cycleZoom} style={{ background: T.card, color: T.sub, border: `1px solid ${T.border}`, borderRadius: 4, padding: "4px 9px", fontSize: 8, cursor: "pointer", fontFamily: T.mono }}>{uiZoom}×</button>
+          <div
+            onMouseEnter={() => setZoomHover(true)}
+            onMouseLeave={() => setZoomHover(false)}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              background: T.card, border: `1px solid ${T.border}`, borderRadius: 4,
+              padding: "3px 8px", height: 20, fontSize: 8, fontFamily: T.mono, color: T.sub,
+              overflow: "hidden",
+              width: zoomHover ? 160 : 48,
+              transition: "width 180ms ease",
+              cursor: "pointer",
+            }}
+          >
+            <span style={{ flexShrink: 0, minWidth: 26 }}>{uiZoom.toFixed(2)}×</span>
+            <input
+              type="range"
+              min={ZOOM_MIN}
+              max={ZOOM_MAX}
+              step={0.01}
+              value={uiZoom}
+              onChange={e => setZoomValue(+e.target.value)}
+              onDoubleClick={() => setZoomValue(1)}
+              style={{
+                flex: 1, height: 3, accentColor: T.accent,
+                opacity: zoomHover ? 1 : 0,
+                transition: "opacity 120ms ease",
+                cursor: "pointer", minWidth: 0,
+              }}
+            />
+          </div>
           <button onClick={() => setShowPrefs(true)} style={{ background: T.card, color: T.sub, border: `1px solid ${T.border}`, borderRadius: 4, padding: "4px 9px", fontSize: 8, cursor: "pointer", fontFamily: T.mono }}>⚙</button>
         </div>
       </div>
+
+      <div style={{ zoom: uiZoom * 0.75 }}>
 
       {/* Drop zone */}
       {!stems.length && !analyzing && (
@@ -421,6 +459,7 @@ export default function MixAnalyzer() {
           )}
         </div>
       )}
+      </div>
     </div>
   );
 }
