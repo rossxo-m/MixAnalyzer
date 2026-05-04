@@ -2,3 +2,12 @@ mix-analyzer/node_modules/
 mix-analyzer/dist/
 mix-analyzer/release/
 mix-analyzer/.mcp.json
+
+# Sensitive files at git root (added 2026-05-04 per FIND-MAW-001)
+gsheets-key.json
+*.key.json
+.env
+.env.local
+credentials/
+joshmode.md
+.claude/
