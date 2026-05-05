@@ -4,6 +4,7 @@ import { BANDS_3 } from '../constants.js';
 import { fft } from '../dsp/fft.js';
 import { drawLiveSpec, drawWaveCanvas, drawOverlay, drawVectorscope, drawLufsMeter, drawPhaseMeter, drawDBMeter, resetLufsState, resetDBMeterState, resetHeatmapBuf } from '../canvas/drawers.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
+import { Button } from './ui/Button.jsx';
 
 // Minimal IIR biquad used for scrub-mode per-band phase computation
 function applyBiquad(src, b0, b1, b2, a1, a2) {
@@ -639,14 +640,18 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
     <div style={{ marginBottom: 14 }}>
       {/* Transport bar: play, time, volume, mono, band toggles */}
       <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
-        <button onClick={toggle} style={{
-          width: 28, height: 28, borderRadius: "50%",
-          background: playing ? withAlpha(THEME.error, 0.09) : withAlpha(THEME.accent, 0.09),
-          color: playing ? THEME.error : THEME.accent,
-          border: `1px solid ${playing ? withAlpha(THEME.error, 0.27) : withAlpha(THEME.accent, 0.27)}`,
-          cursor: "pointer", fontSize: 12,
-          display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-        }}>{playing ? "■" : "▶"}</button>
+        <Button
+          variant="icon"
+          ariaLabel={playing ? "Pause" : "Play"}
+          onClick={toggle}
+          style={{
+            width: 30, height: 30, minWidth: 30, minHeight: 30, borderRadius: "50%",
+            background: playing ? withAlpha(THEME.error, 0.12) : withAlpha(THEME.accent, 0.12),
+            color: playing ? THEME.error : THEME.accent,
+            borderColor: playing ? withAlpha(THEME.error, 0.4) : withAlpha(THEME.accent, 0.4),
+            fontSize: 13, flexShrink: 0,
+          }}
+        >{playing ? "■" : "▶"}</Button>
         <span ref={timeDisplayRef} style={{ fontSize: 9, color: THEME.sub, fontFamily: THEME.mono }}>{fmt(position)} / {fmt(duration)}</span>
 
         {/* Phase 3: Volume slider */}
@@ -659,33 +664,34 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
         </div>
 
         {/* Phase 3: Mono preview toggle */}
-        <button onClick={() => {
-          const newMono = !prefsRef.current.monoPreview;
-          // Fix 4 (corrected): force-sync prefsRef before rebuilding graph — setTimeout/rAF both
-          // race against the useEffect([prefs]) sync and neither reliably wins. Direct mutation
-          // is safe here because setPrefs will overwrite it on next render anyway.
-          prefsRef.current = { ...prefsRef.current, monoPreview: newMono };
-          setPrefs(p => ({ ...p, monoPreview: newMono }));
-          if (playingRef.current) playFrom(positionRef.current);
-        }} style={{
-          padding: "2px 6px", fontSize: 7, fontFamily: THEME.mono,
-          background: prefs.monoPreview ? withAlpha(THEME.warn, 0.13) : THEME.card,
-          color: prefs.monoPreview ? THEME.warn : THEME.dim,
-          border: `1px solid ${prefs.monoPreview ? withAlpha(THEME.warn, 0.27) : THEME.border}`,
-          borderRadius: 3, cursor: "pointer",
-        }}>MONO</button>
+        <Button
+          ariaLabel="Toggle mono preview"
+          pressed={!!prefs.monoPreview}
+          onClick={() => {
+            const newMono = !prefsRef.current.monoPreview;
+            // Fix 4 (corrected): force-sync prefsRef before rebuilding graph — setTimeout/rAF both
+            // race against the useEffect([prefs]) sync and neither reliably wins. Direct mutation
+            // is safe here because setPrefs will overwrite it on next render anyway.
+            prefsRef.current = { ...prefsRef.current, monoPreview: newMono };
+            setPrefs(p => ({ ...p, monoPreview: newMono }));
+            if (playingRef.current) playFrom(positionRef.current);
+          }}
+          style={prefs.monoPreview
+            ? { background: withAlpha(THEME.warn, 0.18), color: THEME.warn, borderColor: withAlpha(THEME.warn, 0.4) }
+            : { color: THEME.dim }}
+        >MONO</Button>
 
         {/* P6-C: Band output mute buttons */}
         <div style={{ display: "flex", gap: 2, marginLeft: 4 }}>
           {BANDS_3.map((band, i) => (
-            <button key={band.name} onClick={() => toggleBandMute(i)} style={{
-              padding: "2px 6px", fontSize: 7, fontFamily: THEME.mono,
-              background: bandMutes[i] ? withAlpha(THEME.border, 0.4) : band.color + "22",
-              color: bandMutes[i] ? THEME.dim : band.color,
-              border: `1px solid ${bandMutes[i] ? THEME.border : band.color + "44"}`,
-              borderRadius: 3, cursor: "pointer",
-              textDecoration: bandMutes[i] ? "line-through" : "none",
-            }}>{band.name}</button>
+            <Button
+              key={band.name}
+              ariaLabel={`${bandMutes[i] ? "Unmute" : "Mute"} ${band.name} band`}
+              onClick={() => toggleBandMute(i)}
+              style={bandMutes[i]
+                ? { background: withAlpha(THEME.border, 0.4), color: THEME.dim, borderColor: THEME.border, textDecoration: "line-through" }
+                : { background: band.color + "22", color: band.color, borderColor: band.color + "55" }}
+            >{band.name}</Button>
           ))}
         </div>
 
@@ -701,16 +707,15 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
             </span>
             <div style={{ display: "flex", gap: 3, alignItems: "center" }}>
               {["line", "spectrograph"].map(m => (
-                <button key={m} onClick={() => {
-                  setPrefs(p => ({ ...p, liveSpecMode: m }));
-                  if (m !== prefs.liveSpecMode) { resetHeatmapBuf(); }
-                }} style={{
-                  padding: "1px 6px", fontSize: 7, fontFamily: THEME.mono, textTransform: "uppercase",
-                  background: prefs.liveSpecMode === m ? withAlpha(THEME.accent, 0.09) : "transparent",
-                  color: prefs.liveSpecMode === m ? THEME.accent : THEME.dim,
-                  border: `1px solid ${prefs.liveSpecMode === m ? withAlpha(THEME.accent, 0.2) : THEME.border}`,
-                  borderRadius: 2, cursor: "pointer",
-                }}>{m}</button>
+                <Button
+                  key={m}
+                  variant="tab"
+                  pressed={prefs.liveSpecMode === m}
+                  onClick={() => {
+                    setPrefs(p => ({ ...p, liveSpecMode: m }));
+                    if (m !== prefs.liveSpecMode) { resetHeatmapBuf(); }
+                  }}
+                >{m}</Button>
               ))}
               <span style={{ display: "flex", alignItems: "center", gap: 3, marginLeft: 2 }}>
                 <span style={{ fontSize: 7, color: THEME.dim, fontFamily: THEME.mono }}>slope</span>
@@ -804,14 +809,14 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
             {zoom.toFixed(zoom >= 10 ? 0 : 1)}×
           </span>
           {zoom > 1 && (
-            <button onClick={() => {
-              setZoom(1); zoomRef.current = 1;
-              scrollPctRef.current = 0; setScrollPct(0);
-            }} style={{
-              padding: "1px 6px", fontSize: 7, fontFamily: THEME.mono,
-              background: "transparent", color: THEME.dim,
-              border: `1px solid ${THEME.border}`, borderRadius: 2, cursor: "pointer",
-            }}>RESET</button>
+            <Button
+              variant="tertiary"
+              ariaLabel="Reset zoom"
+              onClick={() => {
+                setZoom(1); zoomRef.current = 1;
+                scrollPctRef.current = 0; setScrollPct(0);
+              }}
+            >RESET</Button>
           )}
           {zoom > 1 && (
             <input type="range" min={0} max={100} value={Math.round(scrollPct * 100)} onChange={e => {
@@ -821,37 +826,36 @@ export function PlaybackWaveform({ buffer, audioCtx, waveData, duration, prefs, 
           )}
           <div style={{ marginLeft: "auto", display: "flex", gap: 3, flexWrap: "wrap" }}>
             {BANDS_3.map((band, i) => (
-              <button key={band.name} onClick={() => {
-                setPrefs(p => {
-                  const next = [...p.bandToggles];
-                  next[i] = !next[i];
-                  if (!next.some(Boolean)) return p;
-                  return { ...p, bandToggles: next };
-                });
-              }} style={{
-                padding: "2px 8px", fontSize: 8, fontFamily: THEME.mono,
-                background: toggles[i] ? band.color + "22" : THEME.card,
-                color: toggles[i] ? band.color : THEME.dim,
-                border: `1px solid ${toggles[i] ? band.color + "44" : THEME.border}`,
-                borderRadius: 3, cursor: "pointer",
-              }}>{band.name}</button>
+              <Button
+                key={band.name}
+                ariaLabel={`Toggle ${band.name} band visibility`}
+                onClick={() => {
+                  setPrefs(p => {
+                    const next = [...p.bandToggles];
+                    next[i] = !next[i];
+                    if (!next.some(Boolean)) return p;
+                    return { ...p, bandToggles: next };
+                  });
+                }}
+                style={toggles[i]
+                  ? { background: band.color + "22", color: band.color, borderColor: band.color + "55" }
+                  : { color: THEME.dim }}
+              >{band.name}</Button>
             ))}
-            <button onClick={() => setPrefs(p => ({ ...p, specMs: !p.specMs }))} style={{
-              padding: "2px 8px", fontSize: 7, fontFamily: THEME.mono,
-              background: prefs.specMs ? withAlpha(THEME.warn, 0.09) : THEME.card,
-              color: prefs.specMs ? THEME.warn : THEME.dim,
-              border: `1px solid ${prefs.specMs ? withAlpha(THEME.warn, 0.27) : THEME.border}`,
-              borderRadius: 3, cursor: "pointer",
-            }}>M/S</button>
-            <button onClick={() => {
-              setPrefs(p => ({ ...p, waveMode: p.waveMode === "spectral" ? "uniform" : "spectral" }));
-            }} style={{
-              padding: "2px 8px", fontSize: 7, fontFamily: THEME.mono,
-              background: isSpectral ? withAlpha(THEME.accent, 0.09) : THEME.card,
-              color: isSpectral ? THEME.accent : THEME.dim,
-              border: `1px solid ${isSpectral ? withAlpha(THEME.accent, 0.2) : THEME.border}`,
-              borderRadius: 3, cursor: "pointer",
-            }}>{isSpectral ? "SPECTRAL" : "UNIFORM"}</button>
+            <Button
+              ariaLabel="Toggle M/S spectrum mode"
+              pressed={!!prefs.specMs}
+              onClick={() => setPrefs(p => ({ ...p, specMs: !p.specMs }))}
+              style={prefs.specMs
+                ? { background: withAlpha(THEME.warn, 0.18), color: THEME.warn, borderColor: withAlpha(THEME.warn, 0.4) }
+                : { color: THEME.dim }}
+            >M/S</Button>
+            <Button
+              ariaLabel="Toggle spectral waveform coloring"
+              pressed={isSpectral}
+              onClick={() => setPrefs(p => ({ ...p, waveMode: p.waveMode === "spectral" ? "uniform" : "spectral" }))}
+              style={!isSpectral ? { color: THEME.dim } : undefined}
+            >{isSpectral ? "SPECTRAL" : "UNIFORM"}</Button>
           </div>
         </div>
         <div style={{ display: "flex", padding: "4px 0 0" }}>

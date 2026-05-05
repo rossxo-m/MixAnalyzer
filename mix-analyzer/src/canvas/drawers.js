@@ -477,17 +477,17 @@ export function drawWaveCanvas(canvas, waveData, prefs, duration, bpm, keyData, 
   }
 
   // BPM + key corner labels
-  ctx.font = "bold 8px 'JetBrains Mono', monospace";
+  ctx.font = "bold 11px 'JetBrains Mono', monospace";
   if (bpm > 0) {
     ctx.textAlign = "left";
-    ctx.fillStyle = withAlpha(THEME.beatGrid, 0.7);
-    ctx.fillText(`${bpm} BPM`, 6, 11);
+    ctx.fillStyle = withAlpha(THEME.beatGrid, 0.85);
+    ctx.fillText(`${bpm} BPM`, 6, 14);
   }
   if (keyData?.key) {
     const keyColor = keyData.mode === "minor" ? THEME.keyMinor : THEME.keyMajor;
     ctx.textAlign = "right";
-    ctx.fillStyle = withAlpha(keyColor, 0.73);
-    ctx.fillText(keyData.key, W - 6, 11);
+    ctx.fillStyle = withAlpha(keyColor, 0.85);
+    ctx.fillText(keyData.key, W - 6, 14);
   }
 
   // Zoom position indicator (mini map strip) — visible only when zoomed
@@ -549,10 +549,10 @@ function drawPhaseBand(ctx, band, corr, W, rowH, bandNames, bandColors) {
   ctx.strokeStyle = THEME.waveGridText; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(centerX, barY - 6); ctx.lineTo(centerX, barY + 6); ctx.stroke();
 
-  ctx.font = "6px 'JetBrains Mono', monospace"; ctx.textAlign = "center";
+  ctx.font = "8px 'JetBrains Mono', monospace"; ctx.textAlign = "center";
   ctx.fillStyle = THEME.waveGridText;
-  ctx.fillText("L", barLeft - 6, barY + 2);
-  ctx.fillText("R", barRight + 6, barY + 2);
+  ctx.fillText("L", barLeft - 6, barY + 3);
+  ctx.fillText("R", barRight + 6, barY + 3);
 
   const dotX = centerX + corr * (barW / 2);
   const dotColor = corr < 0 ? THEME.error : corr < 0.3 ? THEME.warn : bandColors[band];
@@ -561,12 +561,12 @@ function drawPhaseBand(ctx, band, corr, W, rowH, bandNames, bandColors) {
   ctx.beginPath(); ctx.arc(dotX, barY, 4, 0, Math.PI * 2);
   ctx.fillStyle = dotColor; ctx.fill();
 
-  ctx.font = "7px 'JetBrains Mono', monospace"; ctx.textAlign = "left";
-  ctx.fillStyle = bandColors[band]; ctx.fillText(bandNames[band], 4, barY + 3);
+  ctx.font = "bold 10px 'JetBrains Mono', monospace"; ctx.textAlign = "left";
+  ctx.fillStyle = bandColors[band]; ctx.fillText(bandNames[band], 4, barY + 4);
 
-  ctx.font = "7px 'JetBrains Mono', monospace"; ctx.textAlign = "right";
+  ctx.font = "9px 'JetBrains Mono', monospace"; ctx.textAlign = "right";
   ctx.fillStyle = corr < 0 ? THEME.error : THEME.sub;
-  ctx.fillText(corr.toFixed(2), W - 2, barY + 3);
+  ctx.fillText(corr.toFixed(2), W - 2, barY + 4);
 }
 
 export function drawPhaseMeter(canvas, filterBank, scrubPhaseData = null) {
@@ -582,10 +582,10 @@ export function drawPhaseMeter(canvas, filterBank, scrubPhaseData = null) {
 
   if (!filterBank?.analysers?.length && !scrubPhaseData) {
     // No data — draw empty meter
-    ctx.font = "7px 'JetBrains Mono', monospace"; ctx.textAlign = "left";
+    ctx.font = "bold 10px 'JetBrains Mono', monospace"; ctx.textAlign = "left";
     for (let i = 0; i < 3; i++) {
       const y = i * rowH + rowH / 2;
-      ctx.fillStyle = THEME.waveGridText; ctx.fillText(bandNames[i], 4, y + 3);
+      ctx.fillStyle = THEME.waveGridText; ctx.fillText(bandNames[i], 4, y + 4);
       ctx.strokeStyle = THEME.waveGrid; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(35, y); ctx.lineTo(W - 30, y); ctx.stroke();
       // Center tick
@@ -672,7 +672,7 @@ export function drawLufsMeter(canvas, analyser, scrubDb = null, prefs = null) {
     const y = H - ((db - dbMin) / dbRange) * H;
     ctx.strokeStyle = THEME.waveGrid; ctx.lineWidth = 0.5;
     ctx.beginPath(); ctx.moveTo(scaleW, y); ctx.lineTo(W, y); ctx.stroke();
-    ctx.font = "7px 'JetBrains Mono', monospace"; ctx.textAlign = "right"; ctx.fillStyle = THEME.waveGridText;
+    ctx.font = "9px 'JetBrains Mono', monospace"; ctx.textAlign = "right"; ctx.fillStyle = THEME.waveGridText;
     ctx.fillText(`${db}`, scaleW - 2, y + 3);
   }
 
@@ -684,8 +684,8 @@ export function drawLufsMeter(canvas, analyser, scrubDb = null, prefs = null) {
       ctx.setLineDash([4, 3]);
       ctx.beginPath(); ctx.moveTo(scaleW, tY); ctx.lineTo(W, tY); ctx.stroke();
       ctx.setLineDash([]);
-      ctx.font = "6px 'JetBrains Mono', monospace"; ctx.textAlign = "right";
-      ctx.fillStyle = withAlpha(THEME.good, 0.6);
+      ctx.font = "8px 'JetBrains Mono', monospace"; ctx.textAlign = "right";
+      ctx.fillStyle = withAlpha(THEME.good, 0.7);
       ctx.fillText(`${prefs.lufsTarget}`, scaleW - 2, tY - 1);
     }
   }
@@ -702,13 +702,13 @@ export function drawLufsMeter(canvas, analyser, scrubDb = null, prefs = null) {
     const scaleW2 = 22, barsW2 = W - scaleW2 - 2;
     ctx.fillStyle = mGrad;
     ctx.fillRect(scaleW2, H - mH, barsW2, mH);
-    ctx.font = "8px 'JetBrains Mono', monospace"; ctx.textAlign = "center";
+    ctx.font = "bold 12px 'JetBrains Mono', monospace"; ctx.textAlign = "center";
     ctx.shadowColor = "rgba(0,0,0,0.85)"; ctx.shadowBlur = 3;
     ctx.fillStyle = THEME.text;
-    ctx.fillText(momentaryDb > -60 ? momentaryDb.toFixed(1) : "---", scaleW2 + barsW2 / 2, 10);
+    ctx.fillText(momentaryDb > -60 ? momentaryDb.toFixed(1) : "---", scaleW2 + barsW2 / 2, 13);
     ctx.shadowBlur = 0;
-    ctx.font = "6px 'JetBrains Mono', monospace";
-    ctx.fillStyle = THEME.dim; ctx.fillText("SCRUB", scaleW2 + barsW2 / 2, H - 2);
+    ctx.font = "8px 'JetBrains Mono', monospace";
+    ctx.fillStyle = THEME.dim; ctx.fillText("SCRUB", scaleW2 + barsW2 / 2, H - 3);
     return;
   }
 
@@ -770,18 +770,18 @@ export function drawLufsMeter(canvas, analyser, scrubDb = null, prefs = null) {
 
   // Value readouts above each bar — constant light text with shadow for legibility over any bar color
   ctx.shadowColor = "rgba(0,0,0,0.85)"; ctx.shadowBlur = 3;
-  ctx.font = "8px 'JetBrains Mono', monospace"; ctx.textAlign = "center";
+  ctx.font = "bold 12px 'JetBrains Mono', monospace"; ctx.textAlign = "center";
   ctx.fillStyle = THEME.text;
-  ctx.fillText(momentaryDb > -60 ? momentaryDb.toFixed(1) : "---", barLeft + barW / 2, 10);
-  ctx.font = "7px 'JetBrains Mono', monospace";
-  ctx.fillText(shortTermDb > -60 ? shortTermDb.toFixed(1) : "---", stBarLeft + stBarW / 2, 10);
+  ctx.fillText(momentaryDb > -60 ? momentaryDb.toFixed(1) : "---", barLeft + barW / 2, 13);
+  ctx.font = "bold 10px 'JetBrains Mono', monospace";
+  ctx.fillText(shortTermDb > -60 ? shortTermDb.toFixed(1) : "---", stBarLeft + stBarW / 2, 13);
   ctx.shadowBlur = 0;
 
   // Column labels at bottom
-  ctx.font = "6px 'JetBrains Mono', monospace"; ctx.textAlign = "center";
+  ctx.font = "8px 'JetBrains Mono', monospace"; ctx.textAlign = "center";
   ctx.fillStyle = THEME.dim;
-  ctx.fillText("M", barLeft + barW / 2, H - 2);
-  ctx.fillText("ST", stBarLeft + stBarW / 2, H - 2);
+  ctx.fillText("M", barLeft + barW / 2, H - 3);
+  ctx.fillText("ST", stBarLeft + stBarW / 2, H - 3);
 
 }
 
